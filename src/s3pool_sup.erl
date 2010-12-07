@@ -28,8 +28,8 @@ start_link(Credentials, N) ->
 
 init([Credentials, N]) ->
     RestartStrategy = one_for_one,
-    MaxRestarts = 100,
-    MaxSecondsBetweenRestarts = 10,
+    MaxRestarts = 1000,
+    MaxSecondsBetweenRestarts = 1,
 
     SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
 

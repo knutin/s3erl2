@@ -17,10 +17,11 @@
 -include_lib("xmerl/include/xmerl.hrl").
 -include("s3.hrl").
 
--define(RETRIES, 3).
+-define(RETRIES, 10).
+-define(RETRY_DELAY, 500).
 
 %%====================================================================
-%% API
+%% Api
 %%====================================================================
 set_credentials(Credentials) ->
     s3pool:set_credentials(Credentials).
@@ -228,12 +229,14 @@ xmlToBuckets( {_Headers,Body} ) ->
 
 attempt(F, Retries) ->
     case (catch F()) of
-	{error, connection_closed} when Retries > 0 ->
-	    attempt(F, Retries - 1);
-	{error, timeout} when Retries > 0 ->
-	    attempt(F, Retries - 1);
+       {_, _} when Retries > 0 ->
+          io:format("Error: wait ~w msec, retry no.: ~w~n",
+              [abs(Retries - ?RETRIES) * ?RETRY_DELAY, abs(Retries - ?RETRIES) + 1]),
+          
+          timer:sleep(abs(Retries - ?RETRIES) * ?RETRY_DELAY),  
+	  attempt(F, Retries - 1);       
 	{'EXIT', Reason} when Retries > 0 ->
-	    exit(Reason);
+	  exit(Reason);
 	R ->
-	    R
-    end.
+	  R
+     end.

@@ -1,13 +1,14 @@
 -module(s3pool).
 
-%% API
+%% Api
 -export([get_credentials/0, set_credentials/1, get_worker/0, start_link/1, loop/2]).
 
 -define(SERVER, ?MODULE).
 -define(POOL, s3pool_sup).
+-define(TIMEOUT, 5000 ).
 
 %%%===================================================================
-%%% API functions
+%%% Api functions
 %%%===================================================================
 get_credentials() ->
     Ref = make_ref(),
@@ -15,7 +16,7 @@ get_credentials() ->
     receive
 	{ok, Ref, Credentials} ->
 	    {ok, Credentials}
-    after 5000 ->
+    after ?TIMEOUT ->
 	    exit(s3pool_timeout)
     end.
 
@@ -25,7 +26,7 @@ set_credentials(Credentials) ->
     receive
 	{ok, Ref} ->
 	    ok
-    after 5000 ->
+    after ?TIMEOUT ->
 	    exit(s3pool_timeout)
     end.
 
@@ -36,7 +37,7 @@ get_worker() ->
     receive
 	{ok, Ref, Worker} ->
 	    {ok, Worker}
-    after 5000 ->
+    after ?TIMEOUT ->
 	    exit(s3pool_timeout)
     end.
 

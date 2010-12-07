@@ -1,6 +1,6 @@
 -module(s3test).
 -export([run/3]).
--include("s3.hrl").
+-include("S3.hrl").
  
 run( AKI, SAK, Bucket ) ->
 
