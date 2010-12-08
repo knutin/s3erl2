@@ -10,5 +10,5 @@
                   ibrowse
                  ]},
   {mod, {s3app, []}},
-  {env, [{retries, 5},{retry_delay, 10},{timeout, 5000}]}
+  {env, [{retries, 10},{retry_delay, 10},{timeout, 20000},{worker, 50}]}
  ]}.

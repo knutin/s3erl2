@@ -5,7 +5,7 @@
 
 -define(SERVER, ?MODULE).
 -define(POOL, s3pool_sup).
--define(TIMEOUT, 5000 ).
+-define(TIMEOUT, s3util:get_intval(timeout) ).
 
 %%%===================================================================
 %%% Api functions
@@ -30,7 +30,6 @@ set_credentials(Credentials) ->
 	    exit(s3pool_timeout)
     end.
 
-
 get_worker() ->
     Ref = make_ref(),
     ?SERVER ! {next, Ref, self()},
@@ -40,9 +39,6 @@ get_worker() ->
     after ?TIMEOUT ->
 	    exit(s3pool_timeout)
     end.
-
-start_link() ->
-    start_link(undefined).
 
 start_link(Credentials) ->
     Pid = spawn_link(fun() ->
@@ -67,7 +63,7 @@ loop(Credentials, [Worker | Workers]) ->
     receive
         {set_credentials, Ref, From, NewCredentials} ->
 	    From ! {ok, Ref},
-            loop(NewCredentials, [Worker | Workers]);
+            loop(NewCredentials, [Worker | Workers] );
 	{credentials, Ref, From} ->
 	    From ! {ok, Ref, Credentials},
             loop(Credentials, Workers);

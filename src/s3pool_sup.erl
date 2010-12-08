@@ -9,7 +9,7 @@
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
--define(WORKERS, 40).
+-define(WORKERS, s3util:get_intval(worker)).
 
 %%%===================================================================
 %%% API functions

@@ -17,9 +17,9 @@
 -include_lib("xmerl/include/xmerl.hrl").
 -include("s3.hrl").
 
--define(RETRIES, 10).
--define(RETRY_DELAY, 500).
-
+-define(RETRIES, s3util:get_intval(retries)).
+-define(RETRY_DELAY, s3util:get_intval(retry_delay)).
+-define(TIMEOUT, s3util:get_intval(timeout)).
 %%====================================================================
 %% Api
 %%====================================================================
@@ -182,7 +182,7 @@ genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, Conten
 		      {ok, HttpClient} = s3pool:get_worker(),
 		      ibrowse_http_client:send_req(HttpClient, 
 						   Url, Headers, Method,
-						   Body, Options, 10000)
+						   Body, Options,?TIMEOUT )
 	      end, ?RETRIES),
 						%    io:format("HTTP reply was ~p~n", [Reply]),
     case Reply of
@@ -234,9 +234,7 @@ attempt(F, Retries) ->
 		      [abs(Retries - ?RETRIES) * ?RETRY_DELAY, abs(Retries - ?RETRIES) + 1]),
 
 	    timer:sleep(abs(Retries - ?RETRIES) * ?RETRY_DELAY),
-	    attempt(F, Retries - 1);       
-	{'EXIT', Reason} when Retries > 0 ->
-	    exit(Reason);
+	    attempt(F, Retries - 1);
 	R ->
 	    R
     end.

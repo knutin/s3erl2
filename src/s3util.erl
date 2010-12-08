@@ -1,6 +1,33 @@
 -module(s3util).
--export([collapse/1, string_join/2, join/1,filter_keyset/2, string_value/1]).
+-export([get_intval/1, collapse/1, string_join/2, join/1,filter_keyset/2, string_value/1]).
+
 -include_lib("xmerl/include/xmerl.hrl").
+-define(S3_CONFIG, [{retries,5}	, {retry_delay,100}, {timeout,5000},{worker,40}]).
+
+get_intval(Key) ->
+    ensure_integer(get_val(Key)).
+
+get_val(Key) ->
+    case application:get_env(s3erl, Key) of
+	{ok,Val} ->
+	    Val;
+	undefined ->
+	    get_default(Key)
+	end.
+
+get_default(Key) ->
+    case proplists:lookup(Key, ?S3_CONFIG) of
+      {Key,Value} ->
+	    Value;
+	_Else ->
+            none
+    end.
+
+ensure_integer(Val) ->
+  case is_list(Val) of
+      true -> list_to_integer(Val);
+      false -> Val
+  end.
 
 %% Collapse equal keys into one list
 consume ({K,V}, [{K,L}|T]) -> [{K,[V|L]}|T];
