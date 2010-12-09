@@ -13,21 +13,21 @@ get_val(Key) ->
 	    Val;
 	undefined ->
 	    get_default(Key)
-	end.
+    end.
 
 get_default(Key) ->
     case proplists:lookup(Key, ?S3_CONFIG) of
-      {Key,Value} ->
+	{Key,Value} ->
 	    Value;
 	_Else ->
             none
     end.
 
 ensure_integer(Val) ->
-  case is_list(Val) of
-      true -> list_to_integer(Val);
-      false -> Val
-  end.
+    case is_list(Val) of
+	true -> list_to_integer(Val);
+	false -> Val
+    end.
 
 %% Collapse equal keys into one list
 consume ({K,V}, [{K,L}|T]) -> [{K,[V|L]}|T];
@@ -59,12 +59,12 @@ join ({Key,Values}) ->
 %%join_two_test () -> ?assertMatch( "key:one,two", join({"key",["one","two"]} ) ).
 
 filter_keyset (L,KeySet) -> [ {K,V} || {K,V} <- L, lists:member(K,KeySet) ].
-     
 
-% All the text nodes in an xml doc
+
+						% All the text nodes in an xml doc
 string_value( #xmlDocument{ content=Content } ) -> lists:flatten(lists:map( fun string_value/1, Content ));
 string_value( #xmlElement{ content=Content } ) -> lists:flatten(lists:map( fun string_value/1, Content ));
 string_value( #xmlText{value=Value} ) -> Value;
 string_value( [Nodes]) -> lists:flatten(lists:map( fun string_value/1, Nodes ));
 string_value( _ ) ->  "".
-     
+
