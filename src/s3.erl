@@ -229,9 +229,9 @@ xmlToBuckets( {_Headers,Body} ) ->
 
 attempt(F, Retries) ->
     case (catch F()) of
-	{_, _} when Retries > 0 ->
-	    io:format("Error: wait ~w msec, retry no.: ~w~n", 
-		      [abs(Retries - ?RETRIES) * ?RETRY_DELAY, abs(Retries - ?RETRIES) + 1]),
+	{error, Reason} when Retries > 0 ->
+        error_logger:error_msg("Error in reading from S3: ~w. Wait: ~w mseg, retry no: ~w~n",
+                               [Reason, abs(Retries - ?RETRIES) * ?RETRY_DELAY, abs(Retries - ?RETRIES) + 1]),
 
 	    timer:sleep(abs(Retries - ?RETRIES) * ?RETRY_DELAY),
 	    attempt(F, Retries - 1);
