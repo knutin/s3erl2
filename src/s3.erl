@@ -88,8 +88,9 @@ do_delete(Bucket, Key) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
-s3Host () ->
-    "s3.amazonaws.com".
+s3Host() ->
+    {ok, Endpoint} = s3_config:get_endpoint(),
+    Endpoint.
 
 option_to_param( { prefix, X } ) ->
     { "prefix", X };
@@ -141,7 +142,7 @@ buildHost("") -> s3Host();
 buildHost(Bucket) -> Bucket ++ "." ++ s3Host().
 
 buildUrl(Bucket,Path,QueryParams) ->
-    ibrowse_lib:parse_url("http://" ++ buildHost(Bucket) ++ "/" ++ Path ++ queryParams(QueryParams)).
+    "http://" ++ buildHost(Bucket) ++ "/" ++ Path ++ queryParams(QueryParams).
 
 buildContentHeaders( <<>>, _ ) -> [];
 buildContentHeaders( Contents, ContentType ) ->
@@ -154,12 +155,12 @@ genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, Conten
     Url = buildUrl(Bucket,Path,QueryParams),
 
     OriginalHeaders = [{"Connection", "keep-alive"}] ++
-    buildContentHeaders( Contents, ContentType ) ++
-    UserHeaders,
+        buildContentHeaders( Contents, ContentType ) ++
+        UserHeaders,
     ContentMD5 = "",
     Body = Contents,
 
-    {ok, #aws_credentials{ accessKeyId=AKI, secretAccessKey=SAK }} = s3pool:get_credentials(),
+    {ok, {AKI, SAK}} = s3_config:get_credentials(),
 
     Signature = sign( SAK,
               stringToSign( MethodString, ContentMD5, ContentType,
@@ -170,21 +171,18 @@ genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, Conten
         {"Date", Date }
         | OriginalHeaders ],
 
-                        %    io:format("Sending request ~p~n", [Request]),
     Options = case Method of
           put ->
               [{content_type, ContentType}];
           _ ->
               [{response_format, binary}]
           end,
+
     Reply = attempt(
           fun() ->
-              {ok, HttpClient} = s3pool:get_worker(),
-              ibrowse_http_client:send_req(HttpClient,
-                           Url, Headers, Method,
-                           Body, Options,?TIMEOUT )
+              ibrowse:send_req(Url, Headers, Method, Body, Options, ?TIMEOUT)
           end, ?RETRIES),
-                        %    io:format("HTTP reply was ~p~n", [Reply]),
+
     case Reply of
     {ok, Code, ResponseHeaders, ResponseBody }
       when Code=="200"; Code=="204"
