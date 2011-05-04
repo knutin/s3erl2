@@ -184,13 +184,13 @@ genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, Conten
           end, ?RETRIES),
 
     case Reply of
-    {ok, Code, ResponseHeaders, ResponseBody }
-      when Code=="200"; Code=="204"
-           ->
-        {ResponseHeaders,ResponseBody};
-
-    {ok, _HttpCode, _ResponseHeaders, ResponseBody } ->
-        throw ( parseErrorXml(ResponseBody) )
+        {ok, Code, ResponseHeaders, ResponseBody }
+          when Code=="200" orelse Code=="204" ->
+            {ok, ResponseHeaders,ResponseBody};
+        {ok, _HttpCode, _ResponseHeaders, ResponseBody } ->
+            {error, parseErrorXml(ResponseBody)};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 
@@ -216,7 +216,7 @@ parseErrorXml (Xml) ->
     {XmlDoc, _Rest} = xmerl_scan:string( binary_to_list(Xml) ),
     [#xmlText{value=ErrorCode}]    = xmerl_xpath:string("/Error/Code/text()", XmlDoc),
     [#xmlText{value=ErrorMessage}] = xmerl_xpath:string("/Error/Message/text()", XmlDoc),
-    { s3error, ErrorCode, ErrorMessage }.
+    {ErrorCode, ErrorMessage}.
 
 
 xmlToBuckets( {_Headers,Body} ) ->
@@ -226,13 +226,18 @@ xmlToBuckets( {_Headers,Body} ) ->
 
 
 attempt(F, Retries) ->
-    case (catch F()) of
-    {_Error, Reason} when Retries > 0 ->
-        error_logger:error_msg("Error in reading from S3: ~w. Wait: ~w mseg, retry no: ~w~n",
-                               [Reason, abs(Retries - ?RETRIES) * ?RETRY_DELAY, abs(Retries - ?RETRIES) + 1]),
+    case F() of
+        {error, Reason} when Retries > 0 ->
+            error_logger:error_msg("Error in reading from S3: ~w. "
+                                   "Wait: ~w msec, retry no: ~w~n",
+                                   [Reason,
+                                    abs(Retries - ?RETRIES) * ?RETRY_DELAY,
+                                    abs(Retries - ?RETRIES) + 1]),
 
-        timer:sleep(abs(Retries - ?RETRIES) * ?RETRY_DELAY),
-        attempt(F, Retries - 1);
-    R ->
-        R
+            timer:sleep(abs(Retries - ?RETRIES) * ?RETRY_DELAY),
+            attempt(F, Retries - 1);
+        {error, Reason} ->
+            {error, Reason};
+        R ->
+            R
     end.
