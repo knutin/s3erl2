@@ -63,10 +63,13 @@ do_delete(Bucket) ->
 
                         % Object operations
 do_put(Bucket, Key, Content, ContentType, ACL) ->
-    {Headers,_Body} = putRequest( Bucket, Key, Content, ContentType, ACL),
-    [ETag | _] = [V || {K, V} <- Headers,
-               string:to_lower(K) == "etag"],
-    {ok, ETag}.
+    case putRequest(Bucket, Key, Content, ContentType, ACL) of
+        {error, Reason} ->
+            {error, Reason};
+        {ok, Headers, _Body} ->
+            {"ETag", ETag} = lists:keyfind("ETag", 1, Headers),
+            {ok, ETag}
+    end.
 
 do_list(Bucket, Options) ->
     Params = lists:map( fun option_to_param/1, Options ),
