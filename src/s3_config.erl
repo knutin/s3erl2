@@ -9,7 +9,7 @@
 -include("s3.hrl").
 
 %% API
--export([start_link/1, get_credentials/0, get_endpoint/0]).
+-export([start_link/1, get_credentials/0, get_endpoint/0, get_retry_callback/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -20,7 +20,8 @@
           secret_access_key,
           max_sessions = 10,
           max_pipeline_size = 10,
-          endpoint
+          endpoint,
+          retry_callback
 }).
 
 
@@ -35,30 +36,38 @@ get_credentials() ->
 get_endpoint() ->
     gen_server:call(?MODULE, get_endpoint).
 
+get_retry_callback() ->
+    gen_server:call(?MODULE, get_retry_callback).
+
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
 
 init(Config) ->
-    %% TODO: Validate config
-    AccessKey = proplists:get_value(access_key, Config),
+    AccessKey       = proplists:get_value(access_key, Config),
     SecretAccessKey = proplists:get_value(secret_access_key, Config),
-    MaxSessions = proplists:get_value(max_sessions, Config),
+    MaxSessions     = proplists:get_value(max_sessions, Config),
     MaxPipelineSize = proplists:get_value(max_pipeline_size, Config),
-    Endpoint = proplists:get_value(endpoint, Config),
+    Endpoint        = proplists:get_value(endpoint, Config),
+    RetryCallback   = proplists:get_value(retry_callback, Config, fun (_, _) -> ok end),
+    error_logger:info_msg("RetryCallback ~p~n", [RetryCallback]),
 
-    {ok, #config{access_key = AccessKey,
+    {ok, #config{access_key        = AccessKey,
                  secret_access_key = SecretAccessKey,
-                 max_sessions = MaxSessions,
+                 max_sessions      = MaxSessions,
                  max_pipeline_size = MaxPipelineSize,
-                 endpoint = Endpoint
+                 endpoint          = Endpoint,
+                 retry_callback    = RetryCallback
                 }}.
 
 handle_call(get_credentials, _From, State) ->
     {reply, {ok, {State#config.access_key, State#config.secret_access_key}}, State};
 
 handle_call(get_endpoint, _From, State) ->
-    {reply, {ok, State#config.endpoint}, State}.
+    {reply, {ok, State#config.endpoint}, State};
+
+handle_call(get_retry_callback, _From, State) ->
+    {reply, {ok, State#config.retry_callback}, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.

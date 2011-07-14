@@ -183,7 +183,7 @@ genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, Conten
 
     Reply = attempt(
           fun() ->
-              ibrowse:send_req(Url, Headers, Method, Body, Options, ?TIMEOUT)
+                  ibrowse:send_req(Url, Headers, Method, Body, Options, ?TIMEOUT)
           end, ?RETRIES),
 
     case Reply of
@@ -231,6 +231,8 @@ xmlToBuckets( {_Headers,Body} ) ->
 attempt(F, Retries) ->
     case F() of
         {error, Reason} when Retries > 0 ->
+            {ok, RetryCallback} = s3_config:get_retry_callback(),
+            RetryCallback(Reason, abs(Retries - ?RETRIES) + 1),
             error_logger:error_msg("Error in reading from S3: ~w. "
                                    "Wait: ~w msec, retry no: ~w~n",
                                    [Reason,
