@@ -50,7 +50,6 @@ init(Config) ->
     MaxPipelineSize = proplists:get_value(max_pipeline_size, Config),
     Endpoint        = proplists:get_value(endpoint, Config),
     RetryCallback   = proplists:get_value(retry_callback, Config, fun (_, _) -> ok end),
-    error_logger:info_msg("RetryCallback ~p~n", [RetryCallback]),
 
     {ok, #config{access_key        = AccessKey,
                  secret_access_key = SecretAccessKey,

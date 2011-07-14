@@ -233,12 +233,6 @@ attempt(F, Retries) ->
         {error, Reason} when Retries > 0 ->
             {ok, RetryCallback} = s3_config:get_retry_callback(),
             RetryCallback(Reason, abs(Retries - ?RETRIES) + 1),
-            error_logger:error_msg("Error in reading from S3: ~w. "
-                                   "Wait: ~w msec, retry no: ~w~n",
-                                   [Reason,
-                                    abs(Retries - ?RETRIES) * ?RETRY_DELAY,
-                                    abs(Retries - ?RETRIES) + 1]),
-
             timer:sleep(abs(Retries - ?RETRIES) * ?RETRY_DELAY),
             attempt(F, Retries - 1);
         {error, Reason} ->
