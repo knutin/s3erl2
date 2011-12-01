@@ -191,7 +191,7 @@ genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, Conten
           when Code=="200" orelse Code=="204" ->
             {ok, ResponseHeaders,ResponseBody};
         {ok, _HttpCode, _ResponseHeaders, ResponseBody } ->
-            {error, parseErrorXml(ResponseBody)};
+            {error, parseErrorXml(binary_to_list(ResponseBody))};
         {error, Reason} ->
             {error, Reason}
     end.
