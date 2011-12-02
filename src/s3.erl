@@ -191,7 +191,7 @@ genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, Conten
           when Code=="200" orelse Code=="204" ->
             {ok, ResponseHeaders,ResponseBody};
         {ok, _HttpCode, _ResponseHeaders, ResponseBody } ->
-            {error, parseErrorXml(binary_to_list(ResponseBody))};
+            {error, parseErrorXml(ResponseBody)};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -216,7 +216,7 @@ parseBucketListXml (Xml) ->
     { ok, lists:map( NodeToRecord, ContentNodes ) }.
 
 parseErrorXml (Xml) ->
-    {XmlDoc, _Rest} = xmerl_scan:string( binary_to_list(Xml) ),
+    {XmlDoc, _Rest} = xmerl_scan:string(Xml),
     [#xmlText{value=ErrorCode}]    = xmerl_xpath:string("/Error/Code/text()", XmlDoc),
     [#xmlText{value=ErrorMessage}] = xmerl_xpath:string("/Error/Message/text()", XmlDoc),
     {ErrorCode, ErrorMessage}.
