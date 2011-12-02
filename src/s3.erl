@@ -175,15 +175,15 @@ genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, Conten
         | OriginalHeaders ],
 
     Options = case Method of
-          put ->
-              [{content_type, ContentType}];
-          _ ->
-              [{response_format, binary}]
-          end,
+                  put ->
+                      [{content_type, ContentType}];
+                  _ ->
+                      []
+              end,
 
     Reply = attempt(
           fun() ->
-                  ibrowse:send_req(Url, Headers, Method, Body, Options, ?TIMEOUT)
+                  ibrowse:send_req(Url, Headers, Method, Body, [Options | [{response_format, binary}]], ?TIMEOUT)
           end, ?RETRIES),
 
     case Reply of
@@ -216,7 +216,7 @@ parseBucketListXml (Xml) ->
     { ok, lists:map( NodeToRecord, ContentNodes ) }.
 
 parseErrorXml (Xml) ->
-    {XmlDoc, _Rest} = xmerl_scan:string(Xml),
+    {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Xml)),
     [#xmlText{value=ErrorCode}]    = xmerl_xpath:string("/Error/Code/text()", XmlDoc),
     [#xmlText{value=ErrorMessage}] = xmerl_xpath:string("/Error/Message/text()", XmlDoc),
     {ErrorCode, ErrorMessage}.
