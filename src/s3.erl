@@ -1,240 +1,152 @@
-%%%-------------------------------------------------------------------
-%%% File    : s3.erl
-%%% Author  : Andrew Birkett <andy@nobugs.org>
-%%% Description :
-%%%
-%%% Created : 14 Nov 2007 by Andrew Birkett <andy@nobugs.org>
-%%%-------------------------------------------------------------------
+%%
+%% Blocking stateless library functions for working with Amazon S3.
+%%
 -module(s3).
 
 %% API
--export([ list_buckets/0, create_bucket/1, delete_bucket/1,
-      list_objects/2, list_objects/1, write_object/4, write_object/5, read_object/2, delete_object/2,
-          set_credentials/1]).
-
--export([s3Host/0]).
+-export([get/3, put/5]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("s3.hrl").
 
--define(RETRIES, s3util:get_intval(retries)).
--define(RETRY_DELAY, s3util:get_intval(retry_delay)).
--define(TIMEOUT, s3util:get_intval(timeout)).
-%%====================================================================
-%% Api
-%%====================================================================
-set_credentials(Credentials) ->
-    s3pool:set_credentials(Credentials).
+%%
+%% API
+%%
 
-create_bucket (Name) -> do_put(Name).
-delete_bucket (Name) -> do_delete(Name).
-list_buckets ()      -> do_listbuckets().
+-spec get(#config{}, bucket(), key()) -> {ok, body()} | {error, any()}.
+get(Config, Bucket, Key) ->
+    do_get(Config, Bucket, Key).
 
-write_object (Bucket, Key, Data, ContentType) ->
-    write_object (Bucket, Key, Data, ContentType, undefined).
-write_object (Bucket, Key, Data, ContentType, ACL) ->
-    do_put(Bucket, Key, Data, ContentType, ACL).
-read_object (Bucket, Key) ->
-    do_get(Bucket, Key).
-delete_object (Bucket, Key) ->
-    do_delete(Bucket, Key).
+-spec put(#config{}, bucket(), key(), body(), contenttype()) ->
+                 {ok, etag()} | {error, any()}.
+put(Config, Bucket, Key, Value, ContentType) ->
+    do_put(Config, Bucket, Key, Value, ContentType).
 
-%% option example: [{delimiter, "/"},{maxresults,10},{prefix,"/foo"}]
-list_objects (Bucket, Options ) -> do_list(Bucket, Options).
-list_objects (Bucket) -> list_objects(Bucket, []).
+%%
+%% INTERNAL HELPERS
+%%
 
-
-
-                        % Bucket operations
-do_listbuckets() ->
-    xmlToBuckets(getRequest( "", "", [] )).
-
-do_put(Bucket) ->
-    {_Headers,_Body} = putRequest( Bucket, "", <<>>, "", undefined),
-    ok.
-
-do_delete(Bucket) ->
-    try
-    {_Headers,_Body} = deleteRequest( Bucket, ""),
-    ok
-    catch
-    throw:X -> X
-    end.
-
-                        % Object operations
-do_put(Bucket, Key, Content, ContentType, ACL) ->
-    case putRequest(Bucket, Key, Content, ContentType, ACL) of
-        {error, Reason} ->
-            {error, Reason};
+do_put(Config, Bucket, Key, Value, ContentType) ->
+    case request(Config, put, Bucket, Key, [], Value, ContentType) of
         {ok, Headers, _Body} ->
-            {"ETag", ETag} = lists:keyfind("ETag", 1, Headers),
-            {ok, ETag}
+            {"Etag", Etag} = lists:keyfind("Etag", 1, Headers),
+            {ok, Etag};
+        {error, _} = Error ->
+            Error
     end.
 
-do_list(Bucket, Options) ->
-    Params = lists:map( fun option_to_param/1, Options ),
-    {_, Body} = getRequest( Bucket, "", Params ),
-    parseBucketListXml(Body).
-
-do_get(Bucket, Key) ->
-    getRequest( Bucket, Key, [] ).
-
-do_delete(Bucket, Key) ->
-    try
-    {_Headers,_Body} = deleteRequest( Bucket, Key),
-    ok
-    catch
-    throw:X -> X
+do_get(Config, Bucket, Key) ->
+    case request(Config, get, Bucket, Key, [], <<>>, "") of
+        {ok, _, Body} ->
+            {ok, Body};
+        {error, _} = Error ->
+            Error
     end.
+
+
 
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
 
-s3Host() ->
-    {ok, Endpoint} = s3_config:get_endpoint(),
-    Endpoint.
-
-option_to_param( { prefix, X } ) ->
-    { "prefix", X };
-option_to_param( { maxkeys, X } ) ->
-    { "max-keys", integer_to_list(X) };
-option_to_param( { delimiter, X } ) ->
-    { "delimiter", X }.
-
-getRequest( Bucket, Key, Params ) ->
-    genericRequest( get, Bucket, Key, Params, [], <<>>, "" ).
-putRequest( Bucket, Key, Content, ContentType, ACL) ->
-    Headers = case ACL of
-          [_ | _] -> [{"x-amz-acl", ACL}];
-          _ -> []
-          end,
-    genericRequest( put, Bucket, Key, [], Headers, Content, ContentType ).
-deleteRequest( Bucket, Key ) ->
-    genericRequest( delete, Bucket, Key, [], [], <<>>, "" ).
 
 
-isAmzHeader( Header ) -> lists:prefix("x-amz-", Header).
+isAmzHeader(Header) ->
+    case Header of
+        <<"x-amz-", _/binary>> ->
+            true;
+        _ ->
+            false
+    end.
 
-canonicalizedAmzHeaders( AllHeaders ) ->
-    AmzHeaders = [ {string:to_lower(K),V} || {K,V} <- AllHeaders, isAmzHeader(K) ],
+canonicalizedAmzHeaders(AllHeaders) ->
+    AmzHeaders = [{string:to_lower(K),V} || {K,V} <- AllHeaders, isAmzHeader(K)],
     Strings = lists:map(
-        fun s3util:join/1,
-        s3util:collapse(
-          lists:keysort(1, AmzHeaders) ) ),
-    s3util:string_join( lists:map( fun (S) -> S ++ "\n" end, Strings), "").
+                fun s3util:join/1,
+                s3util:collapse(
+                  lists:keysort(1, AmzHeaders) ) ),
+    s3util:string_join(lists:map( fun (S) -> S ++ "\n" end, Strings), "").
 
-canonicalizedResource ( "", "" ) -> "/";
-canonicalizedResource ( Bucket, "" ) -> "/" ++ Bucket ++ "/";
-canonicalizedResource ( Bucket, Path ) -> "/" ++ Bucket ++ "/" ++ Path.
+canonicalizedResource("", "") -> "/";
+canonicalizedResource(Bucket, "") -> "/" ++ Bucket ++ "/";
+canonicalizedResource(Bucket, Path) -> "/" ++ Bucket ++ "/" ++ Path.
 
-stringToSign ( Verb, ContentMD5, ContentType, Date, Bucket, Path, OriginalHeaders ) ->
-    Parts = [ Verb, ContentMD5, ContentType, Date, canonicalizedAmzHeaders(OriginalHeaders)],
-    s3util:string_join( Parts, "\n") ++ canonicalizedResource(Bucket, Path).
+stringToSign(Verb, ContentMD5, ContentType, Date, Bucket, Path, OriginalHeaders) ->
+    VerbString = string:to_upper(atom_to_list(Verb)),
+    Parts = [VerbString, ContentMD5, ContentType, Date,
+             canonicalizedAmzHeaders(OriginalHeaders)],
+    s3util:string_join(Parts, "\n") ++ canonicalizedResource(Bucket, Path).
 
-sign (Key,Data) ->
-                        %    io:format("Data being signed is ~p~n", [Data]),
-    binary_to_list( base64:encode( crypto:sha_mac(Key,Data) ) ).
+sign(Key,Data) ->
+    base64:encode(crypto:sha_mac(Key,Data)).
 
-queryParams( [] ) -> "";
-queryParams( L ) ->
-    Stringify = fun ({K,V}) -> K ++ "=" ++ V end,
-    "?" ++ s3util:string_join( lists:map( Stringify, L ), "&" ).
+build_host(Bucket) ->
+    [Bucket, ".s3.amazonaws.com"].
 
-buildHost("") -> s3Host();
-buildHost(Bucket) -> Bucket ++ "." ++ s3Host().
+build_url(Bucket,Path) ->
+    lists:flatten(["http://", build_host(Bucket), "/", Path]).
 
-buildUrl(Bucket,Path,QueryParams) ->
-    "http://" ++ buildHost(Bucket) ++ "/" ++ Path ++ queryParams(QueryParams).
-
-buildContentHeaders( <<>>, _ ) -> [];
-buildContentHeaders( Contents, ContentType ) ->
-    [{"Content-Length", integer_to_list(size(Contents))},
-     {"Content-Type", ContentType}].
-
-genericRequest( Method, Bucket, Path, QueryParams, UserHeaders, Contents, ContentType ) ->
+request(Config, Method, Bucket, Path, UserHeaders, Body, ContentType) ->
     Date = httpd_util:rfc1123_date(),
-    MethodString = string:to_upper( atom_to_list(Method) ),
-    Url = buildUrl(Bucket,Path,QueryParams),
+    Url = build_url(Bucket, Path),
 
-    OriginalHeaders = [{"Connection", "keep-alive"}] ++
-        buildContentHeaders( Contents, ContentType ) ++
-        UserHeaders,
-    ContentMD5 = "",
-    Body = Contents,
+    Headers = [{"Content-Type", ContentType} | UserHeaders],
 
-    {ok, {AKI, SAK}} = s3_config:get_credentials(),
+    Signature = sign(Config#config.secret_access_key,
+                     stringToSign(Method, "", ContentType,
+                                  Date, Bucket, Path, Headers)),
 
-    Signature = sign( SAK,
-              stringToSign( MethodString, ContentMD5, ContentType,
-                    Date, Bucket, Path, OriginalHeaders )),
+    Auth = ["AWS ", Config#config.access_key, ":", Signature],
+    FullHeaders = [{"Authorization", Auth},
+                   {"Host", build_host(Bucket)},
+                   {"Date", Date},
+                   {"Connection", "keep-alive"}
+                   | Headers],
 
-    Headers = [ {"Authorization","AWS " ++ AKI ++ ":" ++ Signature },
-        {"Host", buildHost(Bucket) },
-        {"Date", Date }
-        | OriginalHeaders ],
-
-    Options = case Method of
-                  put ->
-                      [{content_type, ContentType}];
-                  _ ->
-                      []
-              end,
-
-    Reply = attempt(
-          fun() ->
-                  ibrowse:send_req(Url, Headers, Method, Body, [Options | [{response_format, binary}]], ?TIMEOUT)
-          end, ?RETRIES),
-
-    case Reply of
-        {ok, Code, ResponseHeaders, ResponseBody }
-          when Code=="200" orelse Code=="204" ->
-            {ok, ResponseHeaders,ResponseBody};
-        {ok, _HttpCode, _ResponseHeaders, ResponseBody } ->
+    ReqF = fun() ->
+                   lhttpc:request(Url, Method, FullHeaders,
+                                  Body, Config#config.timeout)
+           end,
+    case attempt(ReqF, Config) of
+        {ok, {{200, _}, ResponseHeaders, ResponseBody}} ->
+            {ok, ResponseHeaders, ResponseBody};
+        {ok, {{404, "Not Found"}, _, _}} ->
+            {error, not_found};
+        {ok, {_Code, _ResponseHeaders, ResponseBody}} ->
             {error, parseErrorXml(ResponseBody)};
         {error, Reason} ->
             {error, Reason}
     end.
 
 
-parseBucketListXml (Xml) ->
-    {XmlDoc, _Rest} = xmerl_scan:string( binary_to_list(Xml) ),
-    ContentNodes = xmerl_xpath:string("/ListBucketResult/Contents", XmlDoc),
-
-    GetObjectAttribute = fun (Node,Attribute) ->
-                 [Child] = xmerl_xpath:string( Attribute, Node ),
-                 {Attribute, s3util:string_value( Child )}
-             end,
-
-    NodeToRecord = fun (Node) ->
-               #object_info{
-             key =          GetObjectAttribute(Node,"Key"),
-             lastmodified = GetObjectAttribute(Node,"LastModified"),
-             etag =         GetObjectAttribute(Node,"ETag"),
-             size =         GetObjectAttribute(Node,"Size")}
-           end,
-    { ok, lists:map( NodeToRecord, ContentNodes ) }.
-
-parseErrorXml (Xml) ->
+parseErrorXml(Xml) ->
     {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Xml)),
-    [#xmlText{value=ErrorCode}]    = xmerl_xpath:string("/Error/Code/text()", XmlDoc),
-    [#xmlText{value=ErrorMessage}] = xmerl_xpath:string("/Error/Message/text()", XmlDoc),
+    [#xmlText{value=ErrorCode}] = xmerl_xpath:string("/Error/Code/text()", XmlDoc),
+    [#xmlText{value=ErrorMessage}] = xmerl_xpath:string("/Error/Message/text()",
+                                                        XmlDoc),
     {ErrorCode, ErrorMessage}.
 
 
-xmlToBuckets( {_Headers,Body} ) ->
-    {XmlDoc, _Rest} = xmerl_scan:string( binary_to_list(Body) ),
-    TextNodes       = xmerl_xpath:string("//Bucket/Name/text()", XmlDoc),
-    lists:map( fun (#xmlText{value=T}) -> T end, TextNodes).
+attempt(F, Config) ->
+    attempt(F, 0, Config).
 
+attempt(F, Attempts, #config{retry_callback = Callback} = Config) ->
+    case catch(F()) of
+        {error, _} = Error when Attempts =:= Config#config.max_retries ->
+            Error;
+        {'EXIT', Reason} when Attempts =:= Config#config.max_retries ->
+            {error, Reason};
 
-attempt(F, Retries) ->
-    case F() of
-        {error, Reason} when Retries > 0 ->
-            {ok, RetryCallback} = s3_config:get_retry_callback(),
-            RetryCallback(Reason, abs(Retries - ?RETRIES) + 1),
-            timer:sleep(abs(Retries - ?RETRIES) * ?RETRY_DELAY),
-            attempt(F, Retries - 1);
+        {error, Reason} when (Reason =:= connect_timeout orelse
+                              Reason =:= timeout) ->
+
+            Callback(Reason, abs(Attempts - Config#config.max_retries) + 1),
+            timer:sleep(Config#config.retry_delay),
+            attempt(F, Attempts + 1, Config);
+        {'EXIT', {econnrefused, _}} ->
+            Callback(econnrefused, abs(Attempts - Config#config.max_retries) + 1),
+            timer:sleep(Config#config.retry_delay),
+            attempt(F, Attempts + 1, Config);
         {error, Reason} ->
             {error, Reason};
         R ->
