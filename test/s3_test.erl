@@ -5,12 +5,14 @@
 
 
 integration_test_() ->
-    {setup,
+    {foreach,
      fun setup/0,
      fun teardown/1,
      [
       ?_test(get_put()),
-      ?_test(concurrency_limit())
+      ?_test(concurrency_limit()),
+      ?_test(timeout_retry()),
+      ?_test(slow_endpoint())
      ]}.
 
 setup() ->
@@ -30,8 +32,8 @@ teardown(Pids) ->
 get_put() ->
     delete_if_existing(?BUCKET, <<"foo">>),
 
-    ?assertEqual({error, not_found}, s3:get(?BUCKET, <<"foo">>)),
-    ?assertEqual({error, not_found}, s3:get(?BUCKET, "foo")),
+    ?assertEqual({ok, not_found}, s3:get(?BUCKET, <<"foo">>)),
+    ?assertEqual({ok, not_found}, s3:get(?BUCKET, "foo")),
 
     ?assertMatch({ok, _}, s3:put(?BUCKET, <<"foo">>, <<"bazbar">>, "text/plain")),
     {ok, <<"bazbar">>} = s3:get(?BUCKET, <<"foo">>).
@@ -60,16 +62,62 @@ concurrency_limit() ->
     meck:validate(s3_lib),
     meck:unload(s3_lib).
 
+timeout_retry() ->
+    Parent = self(),
+    RetryCb = fun (Reason, Attempt) ->
+                      Parent ! {Reason, Attempt}
+              end,
+    s3_server:stop(),
+    s3_server:start_link([{timeout, 10},
+                          {retry_callback, RetryCb},
+                          {retry_delay, 10}] ++ default_config()),
 
+    meck:new(lhttpc),
+    TimeoutF = fun (_, _, _, _, _) ->
+                       timer:sleep(50),
+                       {error, timeout}
+               end,
+    meck:expect(lhttpc, request, TimeoutF),
+    %% meck:expect(lhttpc, request, TimeoutF),
+    %% meck:expect(lhttpc, request, TimeoutF),
+
+    ?assertEqual({error, timeout}, s3:get(?BUCKET, <<"foo">>)),
+
+    receive M1 -> ?assertEqual({timeout, 0}, M1) end,
+    receive M2 -> ?assertEqual({timeout, 1}, M2) end,
+    receive M3 -> ?assertEqual({timeout, 2}, M3) end,
+    receive _  -> ?assert(false) after 1 -> ok end,
+
+    ?assert(meck:validate(lhttpc)),
+    meck:unload(lhttpc).
+
+slow_endpoint() ->
+    Port = webserver:start(gen_tcp, [fun very_slow_response/5]),
+
+    s3_server:stop(),
+    s3_server:start_link([{timeout, 10},
+                          {endpoint, "localhost:" ++ integer_to_list(Port)},
+                          {retry_delay, 10}] ++ default_config()),
+
+    ?assertEqual({error, timeout}, s3:get(?BUCKET, <<"foo">>, 100)).
 
 
 %%
 %% HELPERS
 %%
 
+very_slow_response(Module, Socket, _, _, _) ->
+    timer:sleep(100),
+    Module:send(
+      Socket,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-type: text/plain\r\nContent-length: 14\r\n\r\n"
+      "Great success!"
+    ).
+
 delete_if_existing(Bucket, Key) ->
     case s3:get(Bucket, Key) of
-        {error, not_found} ->
+        {ok, not_found} ->
             ok;
         {ok, _Doc} ->
             s3:delete(Bucket, Key)

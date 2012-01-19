@@ -42,7 +42,9 @@ do_get(Config, Bucket, Key) ->
     case request(Config, get, Bucket, Key, [], <<>>, "") of
         {ok, _Headers, Body} ->
             {ok, Body};
-        {error, _} = Error ->
+        {ok, not_found} ->
+            {ok, not_found};
+        Error ->
             Error
     end.
 
@@ -90,12 +92,14 @@ sign(Key,Data) ->
 build_host(Bucket) ->
     [Bucket, ".s3.amazonaws.com"].
 
-build_url(Bucket,Path) ->
-    lists:flatten(["http://", build_host(Bucket), "/", Path]).
+build_url(undefined, Bucket, Path) ->
+    lists:flatten(["http://", build_host(Bucket), "/", Path]);
+build_url(Endpoint, _Bucket, Path) ->
+    lists:flatten(["http://", Endpoint, "/", Path]).
 
 request(Config, Method, Bucket, Path, UserHeaders, Body, ContentType) ->
     Date = httpd_util:rfc1123_date(),
-    Url = build_url(Bucket, Path),
+    Url = build_url(Config#config.endpoint, Bucket, Path),
 
     Headers = [{"Content-Type", ContentType} | UserHeaders],
 
@@ -110,17 +114,14 @@ request(Config, Method, Bucket, Path, UserHeaders, Body, ContentType) ->
                    {"Connection", "keep-alive"}
                    | Headers],
 
-    ReqF = fun() ->
-                   lhttpc:request(Url, Method, FullHeaders,
-                                  Body, Config#config.timeout)
-           end,
-    case attempt(ReqF, Config) of
+    case lhttpc:request(Url, Method, FullHeaders,
+                        Body, Config#config.timeout) of
         {ok, {{200, _}, ResponseHeaders, ResponseBody}} ->
             {ok, ResponseHeaders, ResponseBody};
         {ok, {{404, "Not Found"}, _, _}} ->
-            {error, not_found};
+            {ok, not_found};
         {ok, {{204, "No Content"}, _, _}} ->
-            {error, not_found};
+            {ok, not_found};
         {ok, {_Code, _ResponseHeaders, ResponseBody} = Res} ->
             error_logger:info_msg("Res: ~p~n", [Res]),
             {error, parseErrorXml(ResponseBody)};
@@ -137,28 +138,3 @@ parseErrorXml(Xml) ->
     {ErrorCode, ErrorMessage}.
 
 
-attempt(F, Config) ->
-    attempt(F, 0, Config).
-
-attempt(F, Attempts, #config{retry_callback = Callback} = Config) ->
-    case catch(F()) of
-        {error, _} = Error when Attempts =:= Config#config.max_retries ->
-            Error;
-        {'EXIT', Reason} when Attempts =:= Config#config.max_retries ->
-            {error, Reason};
-
-        {error, Reason} when (Reason =:= connect_timeout orelse
-                              Reason =:= timeout) ->
-
-            Callback(Reason, abs(Attempts - Config#config.max_retries) + 1),
-            timer:sleep(Config#config.retry_delay),
-            attempt(F, Attempts + 1, Config);
-        {'EXIT', {econnrefused, _}} ->
-            Callback(econnrefused, abs(Attempts - Config#config.max_retries) + 1),
-            timer:sleep(Config#config.retry_delay),
-            attempt(F, Attempts + 1, Config);
-        {error, Reason} ->
-            {error, Reason};
-        R ->
-            R
-    end.

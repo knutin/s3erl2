@@ -7,7 +7,7 @@
 -include("s3.hrl").
 
 %% API
--export([start_link/1]).
+-export([start_link/1, stop/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -22,14 +22,19 @@
 start_link(Config) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
 
+stop() ->
+    gen_server:call(?MODULE, stop).
 
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
 
 init(Config) ->
+    process_flag(trap_exit, true),
+
     AccessKey       = v(access_key, Config),
     SecretAccessKey = v(secret_access_key, Config),
+    Endpoint        = v(endpoint, Config),
 
     Timeout         = v(timeout, Config, 1500),
     RetryCallback   = v(retry_callback, Config,
@@ -40,6 +45,7 @@ init(Config) ->
 
     C = #config{access_key        = AccessKey,
                 secret_access_key = SecretAccessKey,
+                endpoint          = Endpoint,
                 timeout           = Timeout,
                 retry_callback    = RetryCallback,
                 max_retries       = MaxRetries,
@@ -55,19 +61,20 @@ handle_call({request, Req}, From, #state{config = C} = State)
         spawn_link(fun() ->
                            gen_server:reply(From, handle_request(Req, C))
                    end),
-    erlang:monitor(process, WorkerPid),
     {noreply, State#state{workers = [WorkerPid | State#state.workers]}};
 
 handle_call({request, _}, _From, #state{config = C} = State)
   when length(State#state.workers) >= C#config.max_concurrency ->
-    {reply, {error, max_concurrency}, State}.
+    {reply, {error, max_concurrency}, State};
 
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State}.
 
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', _, process, Pid, normal}, State) ->
+handle_info({'EXIT', Pid, normal}, State) ->
     case lists:member(Pid, State#state.workers) of
         true ->
             {noreply, State#state{workers = lists:delete(Pid, State#state.workers)}};
@@ -97,9 +104,34 @@ v(Key, Data) ->
 v(Key, Data, Default) ->
     proplists:get_value(Key, Data, Default).
 
-
+%% @doc: Executes the given request, will retry if request failed
 handle_request(Req, C) ->
-    execute_request(Req, C).
+    handle_request(Req, C, 0).
+
+handle_request(Req, C, Attempts) ->
+    case catch execute_request(Req, C) of
+        %% Stop retrying if we hit max retries
+        {error, E} when Attempts =:= C#config.max_retries ->
+            {error, E};
+        {'EXIT', {econnrefused, _}} when Attempts =:= C#config.max_retries ->
+            {error, econnrefused};
+
+        %% Continue trying if we have connection related errors
+        {error, Reason} when Reason =:= connect_timeout orelse
+                             Reason =:= timeout ->
+            (C#config.retry_callback)(Reason, Attempts),
+            timer:sleep(C#config.retry_delay),
+            handle_request(Req, C, Attempts + 1);
+        {'EXIT', {econnrefused, _}} ->
+            error_logger:info_msg("exit: ~p~n", [{Req, Attempts}]),
+            (C#config.retry_callback)(econnrefused, Attempts),
+            timer:sleep(C#config.retry_delay),
+            handle_request(Req, C, Attempts + 1);
+
+        %% Success!
+        Response when element(1, Response) =:= ok ->
+            Response
+    end.
 
 execute_request({get, Bucket, Key}, C) ->
     s3_lib:get(C, Bucket, Key);

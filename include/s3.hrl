@@ -7,6 +7,7 @@
 -record(config, {
           access_key,
           secret_access_key,
+          endpoint,
           timeout,
           retry_callback,
           max_retries,
