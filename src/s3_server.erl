@@ -32,25 +32,28 @@ stop() ->
 init(Config) ->
     process_flag(trap_exit, true),
 
-    AccessKey       = v(access_key, Config),
-    SecretAccessKey = v(secret_access_key, Config),
-    Endpoint        = v(endpoint, Config),
+    AccessKey        = v(access_key, Config),
+    SecretAccessKey  = v(secret_access_key, Config),
+    Endpoint         = v(endpoint, Config),
 
-    Timeout         = v(timeout, Config, 1500),
-    RetryCallback   = v(retry_callback, Config,
+    Timeout          = v(timeout, Config, 1500),
+    RetryCallback    = v(retry_callback, Config,
                         fun (_, _) -> ok end),
-    MaxRetries      = v(max_retries, Config, 3),
-    RetryDelay      = v(retry_delay, Config, 500),
-    MaxConcurrency  = v(max_concurrency, Config, 50),
+    MaxRetries       = v(max_retries, Config, 3),
+    RetryDelay       = v(retry_delay, Config, 500),
+    MaxConcurrency   = v(max_concurrency, Config, 50),
+    MaxConcurrencyCB = v(max_concurrency_callback, Config,
+                        fun (_) -> ok end),
 
-    C = #config{access_key        = AccessKey,
-                secret_access_key = SecretAccessKey,
-                endpoint          = Endpoint,
-                timeout           = Timeout,
-                retry_callback    = RetryCallback,
-                max_retries       = MaxRetries,
-                retry_delay       = RetryDelay,
-                max_concurrency   = MaxConcurrency},
+    C = #config{access_key         = AccessKey,
+                secret_access_key  = SecretAccessKey,
+                endpoint           = Endpoint,
+                timeout            = Timeout,
+                retry_callback     = RetryCallback,
+                max_retries        = MaxRetries,
+                retry_delay        = RetryDelay,
+                max_concurrency    = MaxConcurrency,
+                max_concurrency_cb = MaxConcurrencyCB},
 
     {ok, #state{config = C, workers = []}}.
 
@@ -65,6 +68,7 @@ handle_call({request, Req}, From, #state{config = C} = State)
 
 handle_call({request, _}, _From, #state{config = C} = State)
   when length(State#state.workers) >= C#config.max_concurrency ->
+    (C#config.max_concurrency_cb)(C#config.max_concurrency),
     {reply, {error, max_concurrency}, State};
 
 handle_call(stop, _From, State) ->

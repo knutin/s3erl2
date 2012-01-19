@@ -40,18 +40,26 @@ get_put() ->
 
 
 concurrency_limit() ->
+    Parent = self(),
+    MaxConcurrencyCB = fun (N) -> Parent ! {max_concurrency, N} end,
+
+    s3_server:stop(),
+    s3_server:start_link([{max_concurrency_callback, MaxConcurrencyCB},
+                          {max_concurrency, 3}] ++ default_config()),
+
     meck:new(s3_lib),
     GetF = fun (_, _, _) -> timer:sleep(50), {ok, <<"bazbar">>} end,
     meck:expect(s3_lib, get, GetF),
     meck:expect(s3_lib, get, GetF),
     meck:expect(s3_lib, get, GetF),
 
-    Parent = self(),
+
     P1 = spawn(fun() -> Parent ! {self(), s3:get(?BUCKET, <<"foo">>)} end),
     P2 = spawn(fun() -> Parent ! {self(), s3:get(?BUCKET, <<"foo">>)} end),
     P3 = spawn(fun() -> Parent ! {self(), s3:get(?BUCKET, <<"foo">>)} end),
     P4 = spawn(fun() -> Parent ! {self(), s3:get(?BUCKET, <<"foo">>)} end),
 
+    receive M0 -> ?assertEqual({max_concurrency, 3}, M0) end,
     receive {P1, M1} -> ?assertEqual({ok, <<"bazbar">>}, M1) end,
     receive {P2, M2} -> ?assertEqual({ok, <<"bazbar">>}, M2) end,
     receive {P3, M3} -> ?assertEqual({ok, <<"bazbar">>}, M3) end,
@@ -124,7 +132,7 @@ delete_if_existing(Bucket, Key) ->
     end.
 
 default_config() ->
-    [{max_concurrency, 3}] ++ credentials().
+    credentials().
 
 credentials() ->
     File = filename:join([code:priv_dir(s3erl), "s3_credentials.term"]),
