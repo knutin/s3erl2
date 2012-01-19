@@ -7,7 +7,7 @@
 -include("s3.hrl").
 
 %% API
--export([start_link/1, stop/0]).
+-export([start_link/1, get_num_workers/0, stop/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -21,6 +21,9 @@
 
 start_link(Config) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
+
+get_num_workers() ->
+    gen_server:call(?MODULE, get_num_workers).
 
 stop() ->
     gen_server:call(?MODULE, stop).
@@ -71,6 +74,9 @@ handle_call({request, _}, _From, #state{config = C} = State)
     (C#config.max_concurrency_cb)(C#config.max_concurrency),
     {reply, {error, max_concurrency}, State};
 
+handle_call(get_num_workers, _From, #state{workers = Workers} = State) ->
+    {reply, length(Workers), State};
+
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State}.
 
@@ -81,7 +87,8 @@ handle_cast(_Msg, State) ->
 handle_info({'EXIT', Pid, normal}, State) ->
     case lists:member(Pid, State#state.workers) of
         true ->
-            {noreply, State#state{workers = lists:delete(Pid, State#state.workers)}};
+            {noreply, State#state{workers =
+                                      lists:delete(Pid, State#state.workers)}};
         false ->
             error_logger:info_msg("ignored down message~n"),
             {noreply, State}
