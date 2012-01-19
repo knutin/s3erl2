@@ -59,36 +59,6 @@ do_delete(Config, Bucket, Key) ->
 %%--------------------------------------------------------------------
 
 
-
-isAmzHeader(Header) ->
-    case Header of
-        <<"x-amz-", _/binary>> ->
-            true;
-        _ ->
-            false
-    end.
-
-canonicalizedAmzHeaders(AllHeaders) ->
-    AmzHeaders = [{string:to_lower(K),V} || {K,V} <- AllHeaders, isAmzHeader(K)],
-    Strings = lists:map(
-                fun s3util:join/1,
-                s3util:collapse(
-                  lists:keysort(1, AmzHeaders) ) ),
-    s3util:string_join(lists:map( fun (S) -> S ++ "\n" end, Strings), "").
-
-canonicalizedResource("", "") -> "/";
-canonicalizedResource(Bucket, "") -> "/" ++ Bucket ++ "/";
-canonicalizedResource(Bucket, Path) -> "/" ++ Bucket ++ "/" ++ Path.
-
-stringToSign(Verb, ContentMD5, ContentType, Date, Bucket, Path, OriginalHeaders) ->
-    VerbString = string:to_upper(atom_to_list(Verb)),
-    Parts = [VerbString, ContentMD5, ContentType, Date,
-             canonicalizedAmzHeaders(OriginalHeaders)],
-    s3util:string_join(Parts, "\n") ++ canonicalizedResource(Bucket, Path).
-
-sign(Key,Data) ->
-    base64:encode(crypto:sha_mac(Key,Data)).
-
 build_host(Bucket) ->
     [Bucket, ".s3.amazonaws.com"].
 
@@ -137,4 +107,32 @@ parseErrorXml(Xml) ->
                                                         XmlDoc),
     {ErrorCode, ErrorMessage}.
 
+
+%%
+%% Signing
+%%
+
+is_amz_header(<<"x-amz-", _/binary>>) -> true;
+is_amz_header(_)                      -> false.
+
+canonicalizedAmzHeaders(AllHeaders) ->
+    AmzHeaders = [{string:to_lower(K),V} || {K,V} <- AllHeaders, is_amz_header(K)],
+    Strings = lists:map(
+                fun s3util:join/1,
+                s3util:collapse(
+                  lists:keysort(1, AmzHeaders) ) ),
+    s3util:string_join(lists:map( fun (S) -> S ++ "\n" end, Strings), "").
+
+canonicalizedResource("", "") -> "/";
+canonicalizedResource(Bucket, "") -> "/" ++ Bucket ++ "/";
+canonicalizedResource(Bucket, Path) -> "/" ++ Bucket ++ "/" ++ Path.
+
+stringToSign(Verb, ContentMD5, ContentType, Date, Bucket, Path, OriginalHeaders) ->
+    VerbString = string:to_upper(atom_to_list(Verb)),
+    Parts = [VerbString, ContentMD5, ContentType, Date,
+             canonicalizedAmzHeaders(OriginalHeaders)],
+    s3util:string_join(Parts, "\n") ++ canonicalizedResource(Bucket, Path).
+
+sign(Key,Data) ->
+    base64:encode(crypto:sha_mac(Key,Data)).
 
