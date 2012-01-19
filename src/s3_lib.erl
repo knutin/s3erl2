@@ -1,7 +1,7 @@
 %%
 %% Blocking stateless library functions for working with Amazon S3.
 %%
--module(s3).
+-module(s3_lib).
 
 %% API
 -export([get/3, put/5, delete/3]).

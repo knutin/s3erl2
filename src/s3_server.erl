@@ -56,14 +56,14 @@ init(Config) ->
                                 }}}.
 
 handle_call({get, Bucket, Key}, _From, #state{config = C} = State) ->
-    {reply, s3:get(C, Bucket, Key), State};
+    {reply, s3_lib:get(C, Bucket, Key), State};
 
 handle_call({put, Bucket, Key, Value, ContentType}, _From,
             #state{config = C} = State) ->
-    {reply, s3:put(C, Bucket, Key, Value, ContentType), State};
+    {reply, s3_lib:put(C, Bucket, Key, Value, ContentType), State};
 
 handle_call({delete, Bucket, Key}, _From, #state{config = C} = State) ->
-    {reply, s3:delete(C, Bucket, Key), State}.
+    {reply, s3_lib:delete(C, Bucket, Key), State}.
 
 
 handle_cast(_Msg, State) ->

@@ -27,11 +27,11 @@ teardown(Pids) ->
 get_put() ->
     delete_if_existing(?BUCKET, <<"foo">>),
 
-    ?assertEqual({error, not_found}, s3_server:get(?BUCKET, <<"foo">>)),
-    ?assertEqual({error, not_found}, s3_server:get(?BUCKET, "foo")),
+    ?assertEqual({error, not_found}, s3:get(?BUCKET, <<"foo">>)),
+    ?assertEqual({error, not_found}, s3:get(?BUCKET, "foo")),
 
-    ?assertMatch({ok, _}, s3_server:put(?BUCKET, <<"foo">>, <<"bazbar">>, "text/plain")),
-    {ok, <<"bazbar">>} = s3_server:get(?BUCKET, <<"foo">>).
+    ?assertMatch({ok, _}, s3:put(?BUCKET, <<"foo">>, <<"bazbar">>, "text/plain")),
+    {ok, <<"bazbar">>} = s3:get(?BUCKET, <<"foo">>).
 
 
 
