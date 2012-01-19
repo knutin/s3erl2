@@ -8,6 +8,7 @@
 
 %% API
 -export([start_link/1, get_num_workers/0, stop/0]).
+-export([default_max_concurrency_cb/1, default_retry_cb/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -41,12 +42,12 @@ init(Config) ->
 
     Timeout          = v(timeout, Config, 1500),
     RetryCallback    = v(retry_callback, Config,
-                        fun (_, _) -> ok end),
+                         fun ?MODULE:default_retry_cb/2),
     MaxRetries       = v(max_retries, Config, 3),
     RetryDelay       = v(retry_delay, Config, 500),
     MaxConcurrency   = v(max_concurrency, Config, 50),
     MaxConcurrencyCB = v(max_concurrency_callback, Config,
-                        fun (_) -> ok end),
+                         fun ?MODULE:default_max_concurrency_cb/1),
 
     C = #config{access_key         = AccessKey,
                 secret_access_key  = SecretAccessKey,
@@ -59,7 +60,6 @@ init(Config) ->
                 max_concurrency_cb = MaxConcurrencyCB},
 
     {ok, #state{config = C, workers = []}}.
-
 
 handle_call({request, Req}, From, #state{config = C} = State)
   when length(State#state.workers) < C#config.max_concurrency ->
@@ -150,3 +150,7 @@ execute_request({put, Bucket, Key, Value, ContentType}, C) ->
     s3_lib:put(C, Bucket, Key, Value, ContentType);
 execute_request({delete, Bucket, Key}, C) ->
     s3_lib:delete(C, Bucket, Key).
+
+default_max_concurrency_cb(_) -> ok.
+default_retry_cb(_, _) -> ok.
+
