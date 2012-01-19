@@ -4,7 +4,7 @@
 -module(s3).
 
 %% API
--export([get/3, put/5]).
+-export([get/3, put/5, delete/3]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("s3.hrl").
@@ -22,6 +22,9 @@ get(Config, Bucket, Key) ->
 put(Config, Bucket, Key, Value, ContentType) ->
     do_put(Config, Bucket, Key, Value, ContentType).
 
+delete(Config, Bucket, Key) ->
+    do_delete(Config, Bucket, Key).
+
 %%
 %% INTERNAL HELPERS
 %%
@@ -37,11 +40,15 @@ do_put(Config, Bucket, Key, Value, ContentType) ->
 
 do_get(Config, Bucket, Key) ->
     case request(Config, get, Bucket, Key, [], <<>>, "") of
-        {ok, _, Body} ->
+        {ok, _Headers, Body} ->
             {ok, Body};
         {error, _} = Error ->
             Error
     end.
+
+do_delete(Config, Bucket, Key) ->
+    request(Config, delete, Bucket, Key, [], <<>>, "").
+
 
 
 
@@ -112,7 +119,10 @@ request(Config, Method, Bucket, Path, UserHeaders, Body, ContentType) ->
             {ok, ResponseHeaders, ResponseBody};
         {ok, {{404, "Not Found"}, _, _}} ->
             {error, not_found};
-        {ok, {_Code, _ResponseHeaders, ResponseBody}} ->
+        {ok, {{204, "No Content"}, _, _}} ->
+            {error, not_found};
+        {ok, {_Code, _ResponseHeaders, ResponseBody} = Res} ->
+            error_logger:info_msg("Res: ~p~n", [Res]),
             {error, parseErrorXml(ResponseBody)};
         {error, Reason} ->
             {error, Reason}
