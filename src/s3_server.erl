@@ -1,17 +1,19 @@
-%% gen_server wrapping calls to s3. Contains configuration in state,
-%% isolates caller from library failure.
+%% @doc gen_server wrapping calls to s3. Contains configuration in
+%% state, isolates caller from library failure, controls concurrency,
+%% manages retries.
 -module(s3_server).
 -behaviour(gen_server).
+
 -include("s3.hrl").
 
 %% API
--export([start_link/1, get/2, put/4, delete/2]).
+-export([start_link/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {config}).
+-record(state, {config, workers}).
 
 %%
 %% API
@@ -20,56 +22,62 @@
 start_link(Config) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
 
-get(Bucket, Key) ->
-    get(Bucket, Key, 5000).
-get(Bucket, Key, Timeout) ->
-    gen_server:call(?MODULE, {get, Bucket, Key}, Timeout).
-
-put(Bucket, Key, Value, ContentType) ->
-    put(Bucket, Key, Value, ContentType, 5000).
-put(Bucket, Key, Value, ContentType, Timeout) ->
-    gen_server:call(?MODULE, {put, Bucket, Key, Value, ContentType}, Timeout).
-
-delete(Bucket, Key) ->
-    gen_server:call(?MODULE, {delete, Bucket, Key}, 5000).
-
 
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
 
 init(Config) ->
-    AccessKey       = proplists:get_value(access_key, Config),
-    SecretAccessKey = proplists:get_value(secret_access_key, Config),
-    Timeout         = proplists:get_value(timeout, Config, 1500),
-    RetryCallback   = proplists:get_value(retry_callback, Config,
-                                          fun (_, _) -> ok end),
-    MaxRetries      = proplists:get_value(max_retries, Config, 3),
-    RetryDelay      = proplists:get_value(retry_delay, Config, 500),
+    AccessKey       = v(access_key, Config),
+    SecretAccessKey = v(secret_access_key, Config),
 
-    {ok, #state{config = #config{access_key        = AccessKey,
-                                 secret_access_key = SecretAccessKey,
-                                 timeout           = Timeout,
-                                 retry_callback    = RetryCallback,
-                                 max_retries       = MaxRetries,
-                                 retry_delay       = RetryDelay
-                                }}}.
+    Timeout         = v(timeout, Config, 1500),
+    RetryCallback   = v(retry_callback, Config,
+                        fun (_, _) -> ok end),
+    MaxRetries      = v(max_retries, Config, 3),
+    RetryDelay      = v(retry_delay, Config, 500),
+    MaxConcurrency  = v(max_concurrency, Config, 50),
 
-handle_call({get, Bucket, Key}, _From, #state{config = C} = State) ->
-    {reply, s3_lib:get(C, Bucket, Key), State};
+    C = #config{access_key        = AccessKey,
+                secret_access_key = SecretAccessKey,
+                timeout           = Timeout,
+                retry_callback    = RetryCallback,
+                max_retries       = MaxRetries,
+                retry_delay       = RetryDelay,
+                max_concurrency   = MaxConcurrency},
 
-handle_call({put, Bucket, Key, Value, ContentType}, _From,
-            #state{config = C} = State) ->
-    {reply, s3_lib:put(C, Bucket, Key, Value, ContentType), State};
+    {ok, #state{config = C, workers = []}}.
 
-handle_call({delete, Bucket, Key}, _From, #state{config = C} = State) ->
-    {reply, s3_lib:delete(C, Bucket, Key), State}.
+
+handle_call({request, Req}, From, #state{config = C} = State)
+  when length(State#state.workers) < C#config.max_concurrency ->
+    WorkerPid =
+        spawn_link(fun() ->
+                           gen_server:reply(From, handle_request(Req, C))
+                   end),
+    erlang:monitor(process, WorkerPid),
+    {noreply, State#state{workers = [WorkerPid | State#state.workers]}};
+
+handle_call({request, _}, _From, #state{config = C} = State)
+  when length(State#state.workers) >= C#config.max_concurrency ->
+    {reply, {error, max_concurrency}, State}.
+
 
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({'DOWN', _, process, Pid, normal}, State) ->
+    case lists:member(Pid, State#state.workers) of
+        true ->
+            {noreply, State#state{workers = lists:delete(Pid, State#state.workers)}};
+        false ->
+            error_logger:info_msg("ignored down message~n"),
+            {noreply, State}
+    end;
+
 handle_info(_Info, State) ->
+    error_logger:info_msg("~p~n", [_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -83,3 +91,19 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
+v(Key, Data) ->
+    proplists:get_value(Key, Data).
+
+v(Key, Data, Default) ->
+    proplists:get_value(Key, Data, Default).
+
+
+handle_request(Req, C) ->
+    execute_request(Req, C).
+
+execute_request({get, Bucket, Key}, C) ->
+    s3_lib:get(C, Bucket, Key);
+execute_request({put, Bucket, Key, Value, ContentType}, C) ->
+    s3_lib:put(C, Bucket, Key, Value, ContentType);
+execute_request({delete, Bucket, Key}, C) ->
+    s3_lib:delete(C, Bucket, Key).

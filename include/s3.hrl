@@ -10,5 +10,6 @@
           timeout,
           retry_callback,
           max_retries,
-          retry_delay
+          retry_delay,
+          max_concurrency
 }).

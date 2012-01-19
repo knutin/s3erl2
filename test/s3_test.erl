@@ -8,7 +8,10 @@ integration_test_() ->
     {setup,
      fun setup/0,
      fun teardown/1,
-     [?_test(get_put())]}.
+     [
+      ?_test(get_put()),
+      ?_test(concurrency_limit())
+     ]}.
 
 setup() ->
     application:start(crypto),
@@ -34,21 +37,46 @@ get_put() ->
     {ok, <<"bazbar">>} = s3:get(?BUCKET, <<"foo">>).
 
 
+concurrency_limit() ->
+    meck:new(s3_lib),
+    GetF = fun (_, _, _) -> timer:sleep(50), {ok, <<"bazbar">>} end,
+    meck:expect(s3_lib, get, GetF),
+    meck:expect(s3_lib, get, GetF),
+    meck:expect(s3_lib, get, GetF),
+
+    Parent = self(),
+    P1 = spawn(fun() -> Parent ! {self(), s3:get(?BUCKET, <<"foo">>)} end),
+    P2 = spawn(fun() -> Parent ! {self(), s3:get(?BUCKET, <<"foo">>)} end),
+    P3 = spawn(fun() -> Parent ! {self(), s3:get(?BUCKET, <<"foo">>)} end),
+    P4 = spawn(fun() -> Parent ! {self(), s3:get(?BUCKET, <<"foo">>)} end),
+
+    receive {P1, M1} -> ?assertEqual({ok, <<"bazbar">>}, M1) end,
+    receive {P2, M2} -> ?assertEqual({ok, <<"bazbar">>}, M2) end,
+    receive {P3, M3} -> ?assertEqual({ok, <<"bazbar">>}, M3) end,
+    receive {P4, M4} -> ?assertEqual({error, max_concurrency}, M4) end,
+
+    ?assertEqual({ok, <<"bazbar">>}, s3:get(?BUCKET, <<"foo">>)),
+
+    meck:validate(s3_lib),
+    meck:unload(s3_lib).
+
+
+
 
 %%
 %% HELPERS
 %%
 
 delete_if_existing(Bucket, Key) ->
-    case s3_server:get(Bucket, Key) of
+    case s3:get(Bucket, Key) of
         {error, not_found} ->
             ok;
         {ok, _Doc} ->
-            s3_server:delete(Bucket, Key)
+            s3:delete(Bucket, Key)
     end.
 
 default_config() ->
-    credentials().
+    [{max_concurrency, 3}] ++ credentials().
 
 credentials() ->
     File = filename:join([code:priv_dir(s3erl), "s3_credentials.term"]),
