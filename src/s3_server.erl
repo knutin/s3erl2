@@ -62,7 +62,7 @@ init(Config) ->
 
 
 handle_call({request, Req}, From, #state{config = C} = State)
-  when length(State#state.workers) < C#config.max_concurrency ->
+  when length(State#state.workers) =< C#config.max_concurrency ->
     WorkerPid =
         spawn_link(fun() ->
                            gen_server:reply(From, handle_request(Req, C))
