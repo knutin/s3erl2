@@ -129,26 +129,20 @@ handle_request(Req, C) ->
 
 handle_request(Req, C, Attempts) ->
     case catch execute_request(Req, C) of
-        %% Stop retrying if we hit max retries
-        {error, E} when Attempts =:= C#config.max_retries ->
-            {error, E};
-        {'EXIT', {econnrefused, _}} when Attempts =:= C#config.max_retries ->
-            {error, econnrefused};
-
         %% Continue trying if we have connection related errors
-        {error, Reason} when Reason =:= connect_timeout orelse
-                             Reason =:= timeout ->
+        {error, Reason} when Attempts < C#config.max_retries andalso
+                             (Reason =:= connect_timeout orelse
+                              Reason =:= timeout) ->
             (C#config.retry_callback)(Reason, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
-        {'EXIT', {econnrefused, _}} ->
+        {'EXIT', {econnrefused, _}} when Attempts < C#config.max_retries ->
             error_logger:info_msg("exit: ~p~n", [{Req, Attempts}]),
             (C#config.retry_callback)(econnrefused, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
-        %% Success!
-        Response when element(1, Response) =:= ok ->
+        Response ->
             Response
     end.
 

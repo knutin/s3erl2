@@ -12,7 +12,8 @@ integration_test_() ->
       ?_test(get_put()),
       ?_test(concurrency_limit()),
       ?_test(timeout_retry()),
-      ?_test(slow_endpoint())
+      ?_test(slow_endpoint()),
+      ?_test(permission_denied())
      ]}.
 
 setup() ->
@@ -38,6 +39,9 @@ get_put() ->
     ?assertMatch({ok, _}, s3:put(?BUCKET, <<"foo">>, <<"bazbar">>, "text/plain")),
     {ok, <<"bazbar">>} = s3:get(?BUCKET, <<"foo">>).
 
+permission_denied() ->
+    ?assertEqual({error, {"AccessDenied", "Access Denied"}},
+                 s3:put("foobar", <<"foo">>, <<"bazbar">>, "text/plain")).
 
 concurrency_limit() ->
     Parent = self(),
