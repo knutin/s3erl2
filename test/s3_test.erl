@@ -66,6 +66,7 @@ concurrency_limit() ->
     receive {P4, M4} -> ?assertEqual({error, max_concurrency}, M4) end,
 
     ?assertEqual({ok, <<"bazbar">>}, s3:get(?BUCKET, <<"foo">>)),
+    ?assertEqual({ok, [{reqs_processed, 4}]}, s3_server:get_stats()),
 
     meck:validate(s3_lib),
     meck:unload(s3_lib).
