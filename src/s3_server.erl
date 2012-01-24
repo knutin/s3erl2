@@ -7,7 +7,7 @@
 -include("s3.hrl").
 
 %% API
--export([start_link/1, get_num_workers/0, get_stats/0, stop/0]).
+-export([start_link/1, get_stats/0, stop/0]).
 -export([default_max_concurrency_cb/1, default_retry_cb/2]).
 
 %% gen_server callbacks
@@ -22,9 +22,6 @@
 
 start_link(Config) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
-
-get_num_workers() ->
-    gen_server:call(?MODULE, get_num_workers).
 
 get_stats() ->
     gen_server:call(?MODULE, get_stats).
@@ -80,8 +77,10 @@ handle_call({request, _}, _From, #state{config = C} = State)
 handle_call(get_num_workers, _From, #state{workers = Workers} = State) ->
     {reply, length(Workers), State};
 
-handle_call(get_stats, _From, State) ->
-    {reply, {ok, [{reqs_processed, State#state.reqs_processed}]}, State};
+handle_call(get_stats, _From, #state{workers = Workers} = State) ->
+    Stats = [{reqs_processed, State#state.reqs_processed},
+             {num_workers, length(Workers)}],
+    {reply, {ok, Stats}, State};
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State}.
