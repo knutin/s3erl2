@@ -28,7 +28,7 @@ get_stats() ->
     gen_server:call(?MODULE, get_stats).
 
 get_request_cost() ->
-    Stats = get_stats(),
+    {ok, Stats} = get_stats(),
     GetCost = proplists:get_value(gets, Stats) / 1000000,
     PutCost = proplists:get_value(gets, Stats) / 100000,
     [{gets, GetCost}, {puts, PutCost}, {total, GetCost + PutCost}].
