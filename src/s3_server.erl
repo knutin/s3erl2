@@ -7,14 +7,15 @@
 -include("s3.hrl").
 
 %% API
--export([start_link/1, get_stats/0, stop/0]).
+-export([start_link/1, get_stats/0, stop/0, get_request_cost/0]).
 -export([default_max_concurrency_cb/1, default_retry_cb/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {config, workers, reqs_processed}).
+-record(counters, {puts = 0, gets = 0, deletes = 0}).
+-record(state, {config, workers, counters}).
 
 %%
 %% API
@@ -25,6 +26,12 @@ start_link(Config) ->
 
 get_stats() ->
     gen_server:call(?MODULE, get_stats).
+
+get_request_cost() ->
+    Stats = get_stats(),
+    GetCost = proplists:get_value(gets, Stats) / 1000000,
+    PutCost = proplists:get_value(gets, Stats) / 100000,
+    [{gets, GetCost}, {puts, PutCost}, {total, GetCost + PutCost}].
 
 stop() ->
     gen_server:call(?MODULE, stop).
@@ -59,7 +66,7 @@ init(Config) ->
                 max_concurrency    = MaxConcurrency,
                 max_concurrency_cb = MaxConcurrencyCB},
 
-    {ok, #state{config = C, workers = [], reqs_processed = 0}}.
+    {ok, #state{config = C, workers = [], counters = #counters{}}}.
 
 handle_call({request, Req}, From, #state{config = C} = State)
   when length(State#state.workers) < C#config.max_concurrency ->
@@ -67,7 +74,9 @@ handle_call({request, Req}, From, #state{config = C} = State)
         spawn_link(fun() ->
                            gen_server:reply(From, handle_request(Req, C))
                    end),
-    {noreply, State#state{workers = [WorkerPid | State#state.workers]}};
+    NewState = State#state{workers = [WorkerPid | State#state.workers],
+                           counters = update_counters(Req, State#state.counters)},
+    {noreply, NewState};
 
 handle_call({request, _}, _From, #state{config = C} = State)
   when length(State#state.workers) >= C#config.max_concurrency ->
@@ -77,8 +86,10 @@ handle_call({request, _}, _From, #state{config = C} = State)
 handle_call(get_num_workers, _From, #state{workers = Workers} = State) ->
     {reply, length(Workers), State};
 
-handle_call(get_stats, _From, #state{workers = Workers} = State) ->
-    Stats = [{reqs_processed, State#state.reqs_processed},
+handle_call(get_stats, _From, #state{workers = Workers, counters = C} = State) ->
+    Stats = [{puts, C#counters.puts},
+             {gets, C#counters.gets},
+             {deletes, C#counters.deletes},
              {num_workers, length(Workers)}],
     {reply, {ok, Stats}, State};
 
@@ -93,9 +104,7 @@ handle_info({'EXIT', Pid, normal}, State) ->
     case lists:member(Pid, State#state.workers) of
         true ->
             NewWorkers = lists:delete(Pid, State#state.workers),
-            {noreply,
-             State#state{workers = NewWorkers,
-                         reqs_processed = State#state.reqs_processed +1}};
+            {noreply, State#state{workers = NewWorkers}};
         false ->
             error_logger:info_msg("ignored down message~n"),
             {noreply, State}
@@ -151,6 +160,18 @@ execute_request({put, Bucket, Key, Value, ContentType}, C) ->
     s3_lib:put(C, Bucket, Key, Value, ContentType);
 execute_request({delete, Bucket, Key}, C) ->
     s3_lib:delete(C, Bucket, Key).
+
+request_method({get, _, _}) -> get;
+request_method({put, _, _, _, _}) -> put;
+request_method({delete, _, _}) -> delete.
+
+
+update_counters(Req, Cs) ->
+    case request_method(Req) of
+        get    -> Cs#counters{gets = Cs#counters.gets + 1};
+        put    -> Cs#counters{puts = Cs#counters.puts + 1};
+        delete -> Cs#counters{deletes = Cs#counters.deletes + 1}
+    end.
 
 default_max_concurrency_cb(_) -> ok.
 default_retry_cb(_, _) -> ok.
