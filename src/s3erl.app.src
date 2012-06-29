@@ -3,11 +3,9 @@
   {description, "s3erl app"},
   {vsn, "0.1.0"},
   {registered, []},
-  {modules, [s3, s3app, s3pool, s3pool_sup, s3util,s3test]},
+  {modules, [s3, s3app, s3_lib, s3_server, s3util, s3test]},
   {applications, [kernel,
-                  stdlib,
-                  inets,
-                  ibrowse
+                  stdlib
                  ]},
   {mod, {s3app, []}},
   {env, [{retries, 5},{retry_delay, 50},{timeout, 1000},{worker, 50}]}
