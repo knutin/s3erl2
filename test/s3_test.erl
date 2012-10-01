@@ -1,7 +1,7 @@
 -module(s3_test).
 -include_lib("eunit/include/eunit.hrl").
 
--define(BUCKET, "s3erl-test").
+-define(BUCKET, "s3erl-test"). %% note: You might have to change this.
 
 
 integration_test_() ->
@@ -37,7 +37,7 @@ get_put() ->
     ?assertEqual({ok, not_found}, s3:get(?BUCKET, "foo")),
 
     ?assertMatch({ok, _}, s3:put(?BUCKET, <<"foo">>, <<"bazbar">>, "text/plain")),
-    {ok, <<"bazbar">>} = s3:get(?BUCKET, <<"foo">>).
+    ?assertEqual({ok, <<"bazbar">>}, s3:get(?BUCKET, <<"foo">>)).
 
 permission_denied() ->
     ?assertEqual({error, {"AccessDenied", "Access Denied"}},

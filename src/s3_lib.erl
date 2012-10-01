@@ -20,7 +20,8 @@ get(Config, Bucket, Key) ->
 -spec put(#config{}, bucket(), key(), body(), contenttype()) ->
                  {ok, etag()} | {error, any()}.
 put(Config, Bucket, Key, Value, ContentType) ->
-    do_put(Config, Bucket, Key, Value, ContentType).
+    Headers = [{"Content-Type", ContentType}],
+    do_put(Config, Bucket, Key, Value, Headers).
 
 delete(Config, Bucket, Key) ->
     do_delete(Config, Bucket, Key).
@@ -29,17 +30,19 @@ delete(Config, Bucket, Key) ->
 %% INTERNAL HELPERS
 %%
 
-do_put(Config, Bucket, Key, Value, ContentType) ->
-    case request(Config, put, Bucket, Key, [], Value, ContentType) of
-        {ok, Headers, _Body} ->
-            {"Etag", Etag} = lists:keyfind("Etag", 1, Headers),
+do_put(Config, Bucket, Key, Value, Headers) ->
+    case request(Config, put, Bucket, Key, Headers, Value) of
+        {ok, RespHeaders, _Body} ->
+            {"Etag", Etag} = lists:keyfind("Etag", 1, RespHeaders),
             {ok, Etag};
+        {ok, not_found} -> %% eg. bucket doesn't exist.
+            {ok, not_found};
         {error, _} = Error ->
             Error
     end.
 
 do_get(Config, Bucket, Key) ->
-    case request(Config, get, Bucket, Key, [], <<>>, "") of
+    case request(Config, get, Bucket, Key, [], <<>>) of
         {ok, _Headers, Body} ->
             {ok, Body};
         {ok, not_found} ->
@@ -49,7 +52,7 @@ do_get(Config, Bucket, Key) ->
     end.
 
 do_delete(Config, Bucket, Key) ->
-    request(Config, delete, Bucket, Key, [], <<>>, "").
+    request(Config, delete, Bucket, Key, [], <<>>).
 
 
 
@@ -67,14 +70,12 @@ build_url(undefined, Bucket, Path) ->
 build_url(Endpoint, _Bucket, Path) ->
     lists:flatten(["http://", Endpoint, "/", Path]).
 
-request(Config, Method, Bucket, Path, UserHeaders, Body, ContentType) ->
+request(Config, Method, Bucket, Path, Headers, Body) ->
     Date = httpd_util:rfc1123_date(),
     Url = build_url(Config#config.endpoint, Bucket, Path),
 
-    Headers = [{"Content-Type", ContentType} | UserHeaders],
-
     Signature = sign(Config#config.secret_access_key,
-                     stringToSign(Method, "", ContentType,
+                     stringToSign(Method, "",
                                   Date, Bucket, Path, Headers)),
 
     Auth = ["AWS ", Config#config.access_key, ":", Signature],
@@ -127,8 +128,9 @@ canonicalizedResource("", "") -> "/";
 canonicalizedResource(Bucket, "") -> "/" ++ Bucket ++ "/";
 canonicalizedResource(Bucket, Path) -> "/" ++ Bucket ++ "/" ++ Path.
 
-stringToSign(Verb, ContentMD5, ContentType, Date, Bucket, Path, OriginalHeaders) ->
+stringToSign(Verb, ContentMD5, Date, Bucket, Path, OriginalHeaders) ->
     VerbString = string:to_upper(atom_to_list(Verb)),
+    ContentType = proplists:get_value("Content-Type", OriginalHeaders, ""),
     Parts = [VerbString, ContentMD5, ContentType, Date,
              canonicalizedAmzHeaders(OriginalHeaders)],
     s3util:string_join(Parts, "\n") ++ canonicalizedResource(Bucket, Path).
