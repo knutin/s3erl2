@@ -33,8 +33,14 @@ delete(Config, Bucket, Key) ->
 do_put(Config, Bucket, Key, Value, Headers) ->
     case request(Config, put, Bucket, Key, Headers, Value) of
         {ok, RespHeaders, _Body} ->
-            {"Etag", Etag} = lists:keyfind("Etag", 1, RespHeaders),
-            {ok, Etag};
+            case lists:keyfind("Etag", 1, RespHeaders) of
+                {"Etag", Etag} ->
+                    %% for objects
+                    {ok, Etag};
+                false when Key == "" andalso Value == "" ->
+                    %% for bucket
+                    ok
+            end;
         {ok, not_found} -> %% eg. bucket doesn't exist.
             {ok, not_found};
         {error, _} = Error ->
