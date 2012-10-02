@@ -3,8 +3,8 @@
 
 -export([get/2, get/3,
          put/4, put/5,
-         delete/2, delete/3]).
-
+         delete/2, delete/3,
+         stats/0]).
 
 get(Bucket, Key) ->
     get(Bucket, Key, 5000).
@@ -22,6 +22,7 @@ delete(Bucket, Key) ->
 delete(Bucket, Key, Timeout) ->
     call({request, {delete, Bucket, Key}}, Timeout).
 
+stats() -> call(get_stats, 5000).
 
 call(Request, Timeout) ->
     gen_server:call(s3_server, Request, Timeout).
