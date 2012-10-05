@@ -4,7 +4,7 @@
 -module(s3_lib).
 
 %% API
--export([get/3, put/5, delete/3]).
+-export([get/3, put/6, delete/3]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/s3.hrl").
@@ -17,11 +17,11 @@
 get(Config, Bucket, Key) ->
     do_get(Config, Bucket, Key).
 
--spec put(#config{}, bucket(), key(), body(), contenttype()) ->
+-spec put(#config{}, bucket(), key(), body(), contenttype(), [header()]) ->
                  {ok, etag()} | {error, any()}.
-put(Config, Bucket, Key, Value, ContentType) ->
-    Headers = [{"Content-Type", ContentType}],
-    do_put(Config, Bucket, Key, Value, Headers).
+put(Config, Bucket, Key, Value, ContentType, Headers) ->
+    NewHeaders = [{"Content-Type", ContentType}|Headers],
+    do_put(Config, Bucket, Key, Value, NewHeaders).
 
 delete(Config, Bucket, Key) ->
     do_delete(Config, Bucket, Key).
@@ -49,8 +49,12 @@ do_put(Config, Bucket, Key, Value, Headers) ->
 
 do_get(Config, Bucket, Key) ->
     case request(Config, get, Bucket, Key, [], <<>>) of
-        {ok, _Headers, Body} ->
-            {ok, Body};
+        {ok, Headers, Body} ->
+            if Config#config.return_headers ->
+                    {ok, Headers, Body};
+               true ->
+                    {ok, Body}
+            end;
         {ok, not_found} ->
             {ok, not_found};
         Error ->
@@ -100,7 +104,7 @@ request(Config, Method, Bucket, Path, Headers, Body) ->
         {ok, {{204, "No Content"}, _, _}} ->
             {ok, not_found};
         {ok, {_Code, _ResponseHeaders, ResponseBody} = Res} ->
-            error_logger:info_msg("Res: ~p~n", [Res]),
+            error_logger:info_msg("S3 Res: ~p~n", [Res]),
             {error, parseErrorXml(ResponseBody)};
         {error, Reason} ->
             {error, Reason}
@@ -119,7 +123,8 @@ parseErrorXml(Xml) ->
 %% Signing
 %%
 
-is_amz_header(<<"x-amz-", _/binary>>) -> true;
+is_amz_header(<<"x-amz-", _/binary>>) -> true; %% this is not working.
+is_amz_header("x-amz-"++ _)           -> true;
 is_amz_header(_)                      -> false.
 
 canonicalizedAmzHeaders(AllHeaders) ->

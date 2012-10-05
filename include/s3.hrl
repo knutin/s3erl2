@@ -3,6 +3,7 @@
 -type contenttype() :: string().
 -type body()        :: binary().
 -type etag()        :: string().
+-type header()      :: {string(), string()}.
 
 -record(config, {
           access_key,
@@ -13,5 +14,6 @@
           max_retries,
           retry_delay,
           max_concurrency,
-          max_concurrency_cb
+          max_concurrency_cb,
+          return_headers
 }).

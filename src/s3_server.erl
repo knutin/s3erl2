@@ -4,7 +4,7 @@
 -module(s3_server).
 -behaviour(gen_server).
 
--include("s3.hrl").
+-include("../include/s3.hrl").
 
 %% API
 -export([start_link/1, get_stats/0, stop/0, get_request_cost/0]).
@@ -55,6 +55,7 @@ init(Config) ->
     MaxConcurrency   = v(max_concurrency, Config, 50),
     MaxConcurrencyCB = v(max_concurrency_callback, Config,
                          fun ?MODULE:default_max_concurrency_cb/1),
+    ReturnHeaders    = v(return_headers, Config, false),
 
     C = #config{access_key         = AccessKey,
                 secret_access_key  = SecretAccessKey,
@@ -64,7 +65,8 @@ init(Config) ->
                 max_retries        = MaxRetries,
                 retry_delay        = RetryDelay,
                 max_concurrency    = MaxConcurrency,
-                max_concurrency_cb = MaxConcurrencyCB},
+                max_concurrency_cb = MaxConcurrencyCB,
+                return_headers     = ReturnHeaders},
 
     {ok, #state{config = C, workers = [], counters = #counters{}}}.
 
@@ -156,13 +158,13 @@ handle_request(Req, C, Attempts) ->
 
 execute_request({get, Bucket, Key}, C) ->
     s3_lib:get(C, Bucket, Key);
-execute_request({put, Bucket, Key, Value, ContentType}, C) ->
-    s3_lib:put(C, Bucket, Key, Value, ContentType);
+execute_request({put, Bucket, Key, Value, ContentType, Headers}, C) ->
+    s3_lib:put(C, Bucket, Key, Value, ContentType, Headers);
 execute_request({delete, Bucket, Key}, C) ->
     s3_lib:delete(C, Bucket, Key).
 
 request_method({get, _, _}) -> get;
-request_method({put, _, _, _, _}) -> put;
+request_method({put, _, _, _, _, _}) -> put;
 request_method({delete, _, _}) -> delete.
 
 
