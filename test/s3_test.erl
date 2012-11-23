@@ -37,7 +37,10 @@ get_put() ->
     ?assertEqual({ok, not_found}, s3:get(?BUCKET, "foo")),
 
     ?assertMatch({ok, _}, s3:put(?BUCKET, <<"foo">>, <<"bazbar">>, "text/plain")),
-    ?assertEqual({ok, <<"bazbar">>}, s3:get(?BUCKET, <<"foo">>)).
+    ?assertEqual({ok, <<"bazbar">>}, s3:get(?BUCKET, <<"foo">>)),
+
+    ?assertMatch({ok, _}, s3:put(?BUCKET, <<"foo-copy">>, <<>>, "text/plain",
+                                 5000, [{"x-amz-copy-source", ?BUCKET ++ "/foo"}])).
 
 permission_denied() ->
     ?assertEqual({error, {"AccessDenied", "Access Denied"}},
