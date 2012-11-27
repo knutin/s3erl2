@@ -32,14 +32,17 @@ delete(Config, Bucket, Key) ->
 
 do_put(Config, Bucket, Key, Value, Headers) ->
     case request(Config, put, Bucket, Key, Headers, Value) of
-        {ok, RespHeaders, _Body} ->
+        {ok, RespHeaders, Body} ->
             case lists:keyfind("Etag", 1, RespHeaders) of
                 {"Etag", Etag} ->
                     %% for objects
                     {ok, Etag};
                 false when Key == "" andalso Value == "" ->
                     %% for bucket
-                    ok
+                    ok;
+                false when Value == "" orelse Value == <<>> ->
+                    %% for bucket-to-bucket copy
+                    {ok, parseCopyXml(Body)}
             end;
         {ok, not_found} -> %% eg. bucket doesn't exist.
             {ok, not_found};
@@ -117,6 +120,15 @@ parseErrorXml(Xml) ->
     [#xmlText{value=ErrorMessage}] = xmerl_xpath:string("/Error/Message/text()",
                                                         XmlDoc),
     {ErrorCode, ErrorMessage}.
+
+
+parseCopyXml(Xml) ->
+    {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Xml)),
+    %% xmerl doesn't parse &quot; escape character very well
+    case xmerl_xpath:string("/CopyObjectResult/ETag/text()", XmlDoc) of
+        [#xmlText{value=Etag}, #xmlText{value="\""}] -> Etag ++ "\"";
+        [#xmlText{value=Etag}] -> Etag
+    end.
 
 
 %%
