@@ -106,6 +106,9 @@ request(Config, Method, Bucket, Path, Headers, Body) ->
             {ok, not_found};
         {ok, {{204, "No Content"}, _, _}} ->
             {ok, not_found};
+        {ok, {Code, _ResponseHeaders, <<>>} = Res} ->
+            error_logger:info_msg("S3 Res: ~p ~p~n", [Res]),
+            {error, Code};
         {ok, {_Code, _ResponseHeaders, ResponseBody} = Res} ->
             error_logger:info_msg("S3 Res: ~p~n", [Res]),
             {error, parseErrorXml(ResponseBody)};
