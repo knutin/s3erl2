@@ -1,10 +1,11 @@
 %% @doc Library for accessing Amazons S3 database.
 -module(s3).
 
--export([get/2, get/3,
-         put/4, put/5, put/6,
-         delete/2, delete/3,
-         stats/0]).
+-export([get/2, get/3]).
+-export([put/4, put/5, put/6]).
+-export([delete/2, delete/3]).
+-export([list/4]).
+-export([stats/0]).
 
 -type value() :: string() | binary().
 -export_type([value/0]).
@@ -29,27 +30,29 @@ get(Bucket, Key) ->
 get(Bucket, Key, Timeout) ->
     call({request, {get, Bucket, Key}}, Timeout).
 
--spec put(Bucket::bucket(), Key::key(), Value::value(),
-          ContentType::string()) ->
-                 {ok, Etag::any()} | ok | any().
+
 put(Bucket, Key, Value, ContentType) ->
     put(Bucket, Key, Value, ContentType, 5000).
--spec put(Bucket::bucket(), Key::key(), Value::value(),
-          ContentType::string(), timeout()) ->
-                 {ok, Etag::any()} | ok | any().
+
 put(Bucket, Key, Value, ContentType, Timeout) ->
     put(Bucket, Key, Value, ContentType, Timeout, []).
+
 -spec put(Bucket::bucket(), Key::key(), Value::value(),
           ContentType::string(), timeout(), list(header())) ->
                  {ok, Etag::any()} | ok | any().
 put(Bucket, Key, Value, ContentType, Timeout, Headers) ->
     call({request, {put, Bucket, Key, Value, ContentType, Headers}}, Timeout).
 
+
 delete(Bucket, Key) ->
     delete(Bucket, Key, 5000).
 
 delete(Bucket, Key, Timeout) ->
     call({request, {delete, Bucket, Key}}, Timeout).
+
+list(Bucket, Prefix, MaxKeys, Marker) ->
+    call({request, {list, Bucket, Prefix, integer_to_list(MaxKeys), Marker}}, 5000).
+
 
 stats() -> call(get_stats, 5000).
 

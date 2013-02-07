@@ -4,7 +4,7 @@
 -module(s3_lib).
 
 %% API
--export([get/3, put/6, delete/3]).
+-export([get/3, put/6, delete/3, list/5]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/s3.hrl").
@@ -25,6 +25,23 @@ put(Config, Bucket, Key, Value, ContentType, Headers) ->
 
 delete(Config, Bucket, Key) ->
     do_delete(Config, Bucket, Key).
+
+list(Config, Bucket, Prefix, MaxKeys, Marker) ->
+    Key = ["?", "prefix=", Prefix, "&", "max-keys=", MaxKeys, "&marker=", Marker],
+    case request(Config, get, Bucket, lists:flatten(Key), [], <<>>) of
+        {ok, _Headers, Body} ->
+            {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Body)),
+            Keys = lists:map(fun (#xmlText{value = K}) -> list_to_binary(K) end,
+                             xmerl_xpath:string(
+                               "/ListBucketResult/Contents/Key/text()", XmlDoc)),
+
+            {ok, Keys};
+        {ok, not_found} ->
+            {ok, not_found};
+        {error, _} = Error ->
+            Error
+    end.
+
 
 %%
 %% INTERNAL HELPERS
@@ -106,11 +123,9 @@ request(Config, Method, Bucket, Path, Headers, Body) ->
             {ok, not_found};
         {ok, {{204, "No Content"}, _, _}} ->
             {ok, not_found};
-        {ok, {Code, _ResponseHeaders, <<>>} = Res} ->
-            error_logger:info_msg("S3 Res: ~p ~p~n", [Res]),
+        {ok, {Code, _ResponseHeaders, <<>>}} ->
             {error, Code};
-        {ok, {_Code, _ResponseHeaders, ResponseBody} = Res} ->
-            error_logger:info_msg("S3 Res: ~p~n", [Res]),
+        {ok, {_Code, _ResponseHeaders, ResponseBody}} ->
             {error, parseErrorXml(ResponseBody)};
         {error, Reason} ->
             {error, Reason}
@@ -150,17 +165,27 @@ canonicalizedAmzHeaders(AllHeaders) ->
                   lists:keysort(1, AmzHeaders) ) ),
     s3util:string_join(lists:map( fun (S) -> S ++ "\n" end, Strings), "").
 
-canonicalizedResource("", "") -> "/";
-canonicalizedResource(Bucket, "") -> "/" ++ Bucket ++ "/";
-canonicalizedResource(Bucket, Path) -> "/" ++ Bucket ++ "/" ++ Path.
+canonicalizedResource("", "")       -> "/";
+canonicalizedResource(Bucket, "")   -> ["/", Bucket, "/"];
+canonicalizedResource(Bucket, Path) when is_list(Path) ->
+    canonicalizedResource(Bucket, list_to_binary(Path));
+canonicalizedResource(Bucket, Path) ->
+    case binary:split(Path, <<"?">>) of
+        [URL, _SubResource] ->
+            %% TODO: Possible include the sub resource if it should be
+            %% included
+            ["/", Bucket, "/", URL];
+        [URL] ->
+            ["/", Bucket, "/", URL]
+    end.
 
 stringToSign(Verb, ContentMD5, Date, Bucket, Path, OriginalHeaders) ->
     VerbString = string:to_upper(atom_to_list(Verb)),
     ContentType = proplists:get_value("Content-Type", OriginalHeaders, ""),
     Parts = [VerbString, ContentMD5, ContentType, Date,
              canonicalizedAmzHeaders(OriginalHeaders)],
-    s3util:string_join(Parts, "\n") ++ canonicalizedResource(Bucket, Path).
+    [s3util:string_join(Parts, "\n"), canonicalizedResource(Bucket, Path)].
 
 sign(Key,Data) ->
-    base64:encode(crypto:sha_mac(Key,Data)).
+    base64:encode(crypto:sha_mac(Key, lists:flatten(Data))).
 

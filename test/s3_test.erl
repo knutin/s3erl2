@@ -10,7 +10,8 @@ integration_test_() ->
       ?_test(concurrency_limit()),
       ?_test(timeout_retry()),
       ?_test(slow_endpoint()),
-      ?_test(permission_denied())
+      ?_test(permission_denied()),
+      ?_test(list_objects())
      ]}.
 
 setup() ->
@@ -113,7 +114,19 @@ slow_endpoint() ->
                           {endpoint, "localhost:" ++ integer_to_list(Port)},
                           {retry_delay, 10}] ++ default_config()),
 
-    ?assertEqual({error, timeout}, s3:get(?BUCKET, <<"foo">>, 100)).
+    ?assertEqual({error, timeout}, s3:get(bucket(), <<"foo">>, 100)).
+
+list_objects() ->
+    {ok, _} = s3:put(bucket(), "1/1", "foo", "text/plain"),
+    {ok, _} = s3:put(bucket(), "1/2", "foo", "text/plain"),
+    {ok, _} = s3:put(bucket(), "1/3", "foo", "text/plain"),
+    {ok, _} = s3:put(bucket(), "2/1", "foo", "text/plain"),
+
+    ?assertEqual({ok, [<<"1/">>, <<"1/1">>, <<"1/2">>, <<"1/3">>]},
+                 s3:list(bucket(), "1/", 10, "0")),
+
+    ?assertEqual({ok, [<<"1/3">>]},
+                 s3:list(bucket(), "1/", 3, "1/2")).
 
 
 %%
