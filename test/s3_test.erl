@@ -122,11 +122,17 @@ list_objects() ->
     {ok, _} = s3:put(bucket(), "1/3", "foo", "text/plain"),
     {ok, _} = s3:put(bucket(), "2/1", "foo", "text/plain"),
 
+
     ?assertEqual({ok, [<<"1/">>, <<"1/1">>, <<"1/2">>, <<"1/3">>]},
-                 s3:list(bucket(), "1/", 10, "0")),
+                 s3:list(bucket(), "1/", 10, "")),
 
     ?assertEqual({ok, [<<"1/3">>]},
-                 s3:list(bucket(), "1/", 3, "1/2")).
+                 s3:list(bucket(), "1/", 3, "1/2")),
+
+    %% List all, includes keys from other tests.
+    ?assertEqual({ok, [<<"1/">>, <<"1/1">>, <<"1/2">>, <<"1/3">>, <<"2/1">>,
+                       <<"foo">>, <<"foo-copy">>]},
+                 s3:list(bucket(), "", 10, "")).
 
 
 %%
