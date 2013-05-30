@@ -114,9 +114,10 @@ request(Config, Method, Bucket, Path, Headers, Body) ->
                    {"Date", Date},
                    {"Connection", "keep-alive"}
                    | Headers],
+    Options = [{max_connections, Config#config.max_concurrency}],
 
     case lhttpc:request(Url, Method, FullHeaders,
-                        Body, Config#config.timeout) of
+                        Body, Config#config.timeout, Options) of
         {ok, {{200, _}, ResponseHeaders, ResponseBody}} ->
             {ok, ResponseHeaders, ResponseBody};
         {ok, {{404, "Not Found"}, _, _}} ->
