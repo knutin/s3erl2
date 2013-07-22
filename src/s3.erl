@@ -4,7 +4,7 @@
 -export([get/2, get/3]).
 -export([put/4, put/5, put/6]).
 -export([delete/2, delete/3]).
--export([list/4]).
+-export([list/4, list/5]).
 -export([stats/0]).
 
 -type value() :: string() | binary().
@@ -51,7 +51,11 @@ delete(Bucket, Key, Timeout) ->
     call({request, {delete, Bucket, Key}}, Timeout).
 
 list(Bucket, Prefix, MaxKeys, Marker) ->
-    call({request, {list, Bucket, Prefix, integer_to_list(MaxKeys), Marker}}, 5000).
+    list(Bucket, Prefix, MaxKeys, Marker, 5000).
+
+list(Bucket, Prefix, MaxKeys, Marker, Timeout) ->
+    call({request, {list, Bucket, Prefix, integer_to_list(MaxKeys), Marker}},
+         Timeout).
 
 
 stats() -> call(get_stats, 5000).
