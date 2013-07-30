@@ -116,17 +116,23 @@ request(Config, Method, Bucket, Path, Headers, Body) ->
                    | Headers],
     Options = [{max_connections, Config#config.max_concurrency}],
 
-    case lhttpc:request(Url, Method, FullHeaders,
-                        Body, Config#config.timeout, Options) of
+    do_request(Url, Method, FullHeaders, Body, Config#config.timeout, Options).
+
+do_request(Url, Method, Headers, Body, Timeout, Options) ->
+    case lhttpc:request(Url, Method, Headers, Body, Timeout, Options) of
         {ok, {{200, _}, ResponseHeaders, ResponseBody}} ->
             {ok, ResponseHeaders, ResponseBody};
-        {ok, {{404, "Not Found"}, _, _}} ->
-            {ok, not_found};
         {ok, {{204, "No Content"}, _, _}} ->
+            {ok, not_found};
+        {ok, {{307, "Temporary Redirect"}, ResponseHeaders, _ResponseBody}} ->
+            {"Location", Location} = lists:keyfind("Location", 1, ResponseHeaders),
+            do_request(Location, Method, Headers, Body, Timeout, Options);
+        {ok, {{404, "Not Found"}, _, _}} ->
             {ok, not_found};
         {ok, {Code, _ResponseHeaders, <<>>}} ->
             {error, Code};
         {ok, {_Code, _ResponseHeaders, ResponseBody}} ->
+            error_logger:info_msg("error: ~p, ~p", [_Code, _ResponseHeaders]),
             {error, parseErrorXml(ResponseBody)};
         {error, Reason} ->
             {error, Reason}
