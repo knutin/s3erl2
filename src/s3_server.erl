@@ -146,9 +146,15 @@ handle_request(Req, C, Attempts) ->
             (C#config.retry_callback)(Reason, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
+
         {'EXIT', {econnrefused, _}} when Attempts < C#config.max_retries ->
             error_logger:info_msg("exit: ~p~n", [{Req, Attempts}]),
             (C#config.retry_callback)(econnrefused, Attempts),
+            timer:sleep(C#config.retry_delay),
+            handle_request(Req, C, Attempts + 1);
+
+        {error, {"InternalError", _}} ->
+            (C#config.retry_callback)(internal_error, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
