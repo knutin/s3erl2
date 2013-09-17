@@ -144,8 +144,8 @@ callback_test() ->
     application:start(lhttpc),
 
     Parent = self(),
-    F = fun (Method, ElapsedUs, Response) ->
-                Parent ! {Method, ElapsedUs, Response}
+    F = fun (Request, Response, ElapsedUs) ->
+                Parent ! {Request, Response, ElapsedUs}
         end,
 
     {ok, _} = s3_server:start_link([{post_request_callback, F} | credentials()]),
@@ -154,8 +154,23 @@ callback_test() ->
     {ok, _} = s3:put(bucket(), "foo", "bar", "text/plain"),
     {ok, _} = s3:get(bucket(), "foo"),
 
-    receive M1 -> ?assertMatch({put, _, _}, M1) end,
-    receive M2 -> ?assertMatch({get, _, _}, M2) end,
+    receive M1 ->
+            fun () ->
+                    {Request, Response, _ElapsedUs} = M1,
+                    ?assertEqual({put, bucket(), "foo", "bar", "text/plain", []},
+                                 Request),
+                    ?assertMatch({ok, _}, Response)
+            end()
+    end,
+
+    receive M2 ->
+            fun () ->
+                    {Request, Response, _ElapsedUs} = M2,
+                    ?assertEqual({get, bucket(), "foo"}, Request),
+                    ?assertEqual({ok, <<"bar">>}, Response)
+            end()
+    end,
+
     s3_server:stop().
 
 

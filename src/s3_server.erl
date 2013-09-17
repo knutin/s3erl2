@@ -166,9 +166,9 @@ handle_request(Req, C, Attempts) ->
 
         Response ->
             End = os:timestamp(),
-            (C#config.post_request_cb)(request_method(Req),
-                                       timer:now_diff(End, Start),
-                                       Response),
+            (C#config.post_request_cb)(Req, Response,
+                                       timer:now_diff(End, Start)),
+
             Response
     end.
 
