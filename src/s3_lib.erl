@@ -132,7 +132,6 @@ do_request(Url, Method, Headers, Body, Timeout, Options) ->
         {ok, {Code, _ResponseHeaders, <<>>}} ->
             {error, Code};
         {ok, {_Code, _ResponseHeaders, ResponseBody}} ->
-            error_logger:info_msg("error: ~p, ~p", [_Code, _ResponseHeaders]),
             {error, parseErrorXml(ResponseBody)};
         {error, Reason} ->
             {error, Reason}

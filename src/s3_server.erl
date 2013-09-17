@@ -8,7 +8,9 @@
 
 %% API
 -export([start_link/1, get_stats/0, stop/0, get_request_cost/0]).
--export([default_max_concurrency_cb/1, default_retry_cb/2]).
+-export([default_max_concurrency_cb/1,
+         default_retry_cb/2,
+         default_post_request_cb/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -55,6 +57,8 @@ init(Config) ->
     MaxConcurrency   = v(max_concurrency, Config, 50),
     MaxConcurrencyCB = v(max_concurrency_callback, Config,
                          fun ?MODULE:default_max_concurrency_cb/1),
+    PostRequestCB    = v(post_request_callback, Config,
+                         fun ?MODULE:default_post_request_cb/3),
     ReturnHeaders    = v(return_headers, Config, false),
 
     C = #config{access_key         = AccessKey,
@@ -66,6 +70,7 @@ init(Config) ->
                 retry_delay        = RetryDelay,
                 max_concurrency    = MaxConcurrency,
                 max_concurrency_cb = MaxConcurrencyCB,
+                post_request_cb    = PostRequestCB,
                 return_headers     = ReturnHeaders},
 
     {ok, #state{config = C, workers = [], counters = #counters{}}}.
@@ -138,6 +143,7 @@ handle_request(Req, C) ->
     handle_request(Req, C, 0).
 
 handle_request(Req, C, Attempts) ->
+    Start = os:timestamp(),
     case catch execute_request(Req, C) of
         %% Continue trying if we have connection related errors
         {error, Reason} when Attempts < C#config.max_retries andalso
@@ -159,6 +165,10 @@ handle_request(Req, C, Attempts) ->
             handle_request(Req, C, Attempts + 1);
 
         Response ->
+            End = os:timestamp(),
+            (C#config.post_request_cb)(request_method(Req),
+                                       timer:now_diff(End, Start),
+                                       Response),
             Response
     end.
 
@@ -184,6 +194,6 @@ update_counters(Req, Cs) ->
         delete -> Cs#counters{deletes = Cs#counters.deletes + 1}
     end.
 
-default_max_concurrency_cb(_) -> ok.
-default_retry_cb(_, _) -> ok.
-
+default_max_concurrency_cb(_)    -> ok.
+default_retry_cb(_, _)           -> ok.
+default_post_request_cb(_, _, _) -> ok.

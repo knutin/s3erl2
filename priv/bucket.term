@@ -1,1 +1,1 @@
-{bucket, "unity-s3erl-test"}.
+{bucket, "test-ga-s3erl"}.

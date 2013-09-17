@@ -15,5 +15,6 @@
           retry_delay,
           max_concurrency,
           max_concurrency_cb,
+          post_request_cb,
           return_headers
 }).
