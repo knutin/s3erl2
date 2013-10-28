@@ -107,7 +107,9 @@ handle_call(stop, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Pid, normal}, State) ->
+handle_info({'EXIT', Pid, _}, State) ->
+    %% TODO: Keep track of From references in workers list so we can
+    %% reply to our caller
     case lists:member(Pid, State#state.workers) of
         true ->
             NewWorkers = lists:delete(Pid, State#state.workers),
@@ -117,8 +119,8 @@ handle_info({'EXIT', Pid, normal}, State) ->
             {noreply, State}
     end;
 
-handle_info(_Info, State) ->
-    error_logger:info_msg("~p~n", [_Info]),
+handle_info(Info, State) ->
+    error_logger:info_msg("ignored: ~p~n", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -164,12 +166,10 @@ handle_request(Req, C, Attempts) ->
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
-        Response ->
+        Res ->
             End = os:timestamp(),
-            (C#config.post_request_cb)(Req, Response,
-                                       timer:now_diff(End, Start)),
-
-            Response
+            (C#config.post_request_cb)(Req, Res, timer:now_diff(End, Start)),
+            Res
     end.
 
 execute_request({get, Bucket, Key}, C) ->
