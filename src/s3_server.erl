@@ -166,6 +166,11 @@ handle_request(Req, C, Attempts) ->
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
+        {error, {503, "Service Unavailable"}} ->
+            (C#config.retry_callback)(internal_error, Attempts),
+            timer:sleep(C#config.retry_delay),
+            handle_request(Req, C, Attempts + 1);
+
         Res ->
             End = os:timestamp(),
             (C#config.post_request_cb)(Req, Res, timer:now_diff(End, Start)),
