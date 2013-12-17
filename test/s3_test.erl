@@ -10,6 +10,7 @@ integration_test_() ->
       ?_test(timeout_retry()),
       ?_test(slow_endpoint()),
       ?_test(permission_denied()),
+      ?_test(fold()),
       ?_test(list_objects())
      ]}.
 
@@ -135,6 +136,15 @@ list_objects() ->
                        <<"foo">>, <<"foo-copy">>]},
                  s3:list(bucket(), "", 10, "")).
 
+fold() ->
+    %% Depends on earlier tests to setup data.
+    ?assertEqual([<<"1/1">>, <<"1/2">>, <<"1/3">>],
+                 s3:fold(bucket(), "1/", fun(Key, Acc) -> [Key|Acc] end, [])),
+
+     %% List all, includes keys from other tests.
+    ?assertEqual([<<"1/1">>, <<"1/2">>, <<"1/3">>, <<"2/1">>,
+                  <<"foo">>, <<"foo-copy">>],
+                 s3:fold(bucket(), "", fun(Key, Acc) -> [Key|Acc] end, [])).
 
 callback_test() ->
     application:start(asn1),
