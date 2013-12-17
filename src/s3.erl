@@ -5,6 +5,7 @@
 -export([put/4, put/5, put/6]).
 -export([delete/2, delete/3]).
 -export([list/4, list/5]).
+-export([fold/4]).
 -export([stats/0]).
 
 -type value() :: string() | binary().
@@ -57,6 +58,27 @@ list(Bucket, Prefix, MaxKeys, Marker, Timeout) ->
     call({request, {list, Bucket, Prefix, integer_to_list(MaxKeys), Marker}},
          Timeout).
 
+-spec fold(Bucket::string(), Prefix::string(),
+           FoldFun::fun((Key::string(), Acc::term()) -> NewAcc::term()),
+           InitAcc::term()) -> FinalAcc::term().
+fold(Bucket, Prefix, F, Acc) ->
+    case s3:list(Bucket, Prefix, 100, "") of
+        {ok, Keys} when is_list(Keys) ->
+            do_fold(Bucket, Prefix, F, Keys, Acc);
+        %% we only expect an error on the first call to list.
+        {ok, not_found} -> {error, not_found};
+        {error, Rsn} -> {error, Rsn}
+    end.
+
+do_fold(Bucket, Prefix, F, [Last], Acc) ->
+    NewAcc = F(Last, Acc),
+    %% get next part of the keys from the backup
+    {ok, Keys} = list(Bucket, Prefix, 100, Last),
+    do_fold(Bucket, Prefix, F, Keys, NewAcc);
+do_fold(Bucket, Prefix, F, [H|T], Acc) ->
+    %% this is the normal (recursive) case.
+    do_fold(Bucket, Prefix, F, T, F(H, Acc));
+do_fold(_Bucket, _Prefix, _F, [], Acc) -> Acc. %% done
 
 stats() -> call(get_stats, 5000).
 
