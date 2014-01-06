@@ -3,7 +3,6 @@
   {description, "s3erl app"},
   {vsn, "0.1.0"},
   {registered, []},
-  {modules, [s3, s3app, s3_lib, s3_server, s3util, s3test]},
   {applications, [kernel,
                   stdlib,
                   lhttpc
