@@ -5,6 +5,7 @@
   {registered, []},
   {applications, [kernel,
                   stdlib,
+                  inets,
                   lhttpc
                  ]},
   {env, [{retries, 5},{retry_delay, 50},{timeout, 1000},{worker, 50}]}
