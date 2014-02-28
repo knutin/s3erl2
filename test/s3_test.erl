@@ -55,7 +55,7 @@ concurrency_limit() ->
                           {max_concurrency, 3}] ++ default_config()),
 
     meck:new(s3_lib),
-    GetF = fun (_, _, _) -> timer:sleep(10), {ok, <<"bazbar">>} end,
+    GetF = fun (_, _, _, _) -> timer:sleep(50), {ok, <<"bazbar">>} end,
     meck:expect(s3_lib, get, GetF),
 
     P1 = spawn(fun() -> Parent ! {self(), s3:get(bucket(), <<"foo">>)} end),
@@ -174,7 +174,7 @@ callback_test() ->
     receive M2 ->
             fun () ->
                     {Request, Response, _ElapsedUs} = M2,
-                    ?assertEqual({get, bucket(), "foo"}, Request),
+                    ?assertEqual({get, bucket(), "foo", []}, Request),
                     ?assertEqual({ok, <<"bar">>}, Response)
             end()
     end,
