@@ -55,11 +55,8 @@ concurrency_limit() ->
                           {max_concurrency, 3}] ++ default_config()),
 
     meck:new(s3_lib),
-    GetF = fun (_, _, _) -> timer:sleep(50), {ok, <<"bazbar">>} end,
+    GetF = fun (_, _, _, _) -> timer:sleep(50), {ok, <<"bazbar">>} end,
     meck:expect(s3_lib, get, GetF),
-    meck:expect(s3_lib, get, GetF),
-    meck:expect(s3_lib, get, GetF),
-
 
     P1 = spawn(fun() -> Parent ! {self(), s3:get(bucket(), <<"foo">>)} end),
     P2 = spawn(fun() -> Parent ! {self(), s3:get(bucket(), <<"foo">>)} end),
@@ -67,10 +64,11 @@ concurrency_limit() ->
     P4 = spawn(fun() -> Parent ! {self(), s3:get(bucket(), <<"foo">>)} end),
 
     receive M0 -> ?assertEqual({max_concurrency, 3}, M0) end,
-    receive {P1, M1} -> ?assertEqual({ok, <<"bazbar">>}, M1) end,
-    receive {P2, M2} -> ?assertEqual({ok, <<"bazbar">>}, M2) end,
-    receive {P3, M3} -> ?assertEqual({ok, <<"bazbar">>}, M3) end,
-    receive {P4, M4} -> ?assertEqual({error, max_concurrency}, M4) end,
+    ?assertEqual([{error, max_concurrency},
+                  {ok, <<"bazbar">>},
+                  {ok, <<"bazbar">>},
+                  {ok, <<"bazbar">>}],
+                 lists:sort([receive {P, M} -> M  end || P <- [P1,P2,P3,P4]])),
 
     ?assertEqual({ok, <<"bazbar">>}, s3:get(bucket(), <<"foo">>)),
     ?assertEqual({ok, [{puts, 0}, {gets, 4}, {deletes, 0}, {num_workers, 0}]},
@@ -138,12 +136,12 @@ list_objects() ->
 
 fold() ->
     %% Depends on earlier tests to setup data.
-    ?assertEqual([<<"1/1">>, <<"1/2">>, <<"1/3">>],
+    ?assertEqual([<<"1/3">>, <<"1/2">>, <<"1/1">>],
                  s3:fold(bucket(), "1/", fun(Key, Acc) -> [Key|Acc] end, [])),
 
      %% List all, includes keys from other tests.
-    ?assertEqual([<<"1/1">>, <<"1/2">>, <<"1/3">>, <<"2/1">>,
-                  <<"foo">>, <<"foo-copy">>],
+    ?assertEqual([<<"foo-copy">>, <<"foo">>, <<"2/1">>, <<"1/3">>, <<"1/2">>,
+                  <<"1/1">>],
                  s3:fold(bucket(), "", fun(Key, Acc) -> [Key|Acc] end, [])).
 
 callback_test() ->
@@ -176,7 +174,7 @@ callback_test() ->
     receive M2 ->
             fun () ->
                     {Request, Response, _ElapsedUs} = M2,
-                    ?assertEqual({get, bucket(), "foo"}, Request),
+                    ?assertEqual({get, bucket(), "foo", []}, Request),
                     ?assertEqual({ok, <<"bar">>}, Response)
             end()
     end,

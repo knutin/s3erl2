@@ -23,13 +23,23 @@
                  {ok, [ResponseHeaders::header()], Body::value()} |
                  {ok, Body::value()} | term().
 get(Bucket, Key) ->
-    get(Bucket, Key, 5000).
+    get(Bucket, Key, 5000, []).
 
--spec get(Bucket::bucket(), Key::key(), timeout()) ->
+-spec get(Bucket::bucket(), Key::key(), timeout() | [header()]) ->
                  {ok, [ResponseHeaders::header()], Body::value()} |
-                 {ok, Body::value()} | term().
-get(Bucket, Key, Timeout) ->
-    call({request, {get, Bucket, Key}}, Timeout).
+                 {ok, Body::value()} | term() |
+                 {ok, not_modified}.
+get(Bucket, Key, Timeout) when is_integer(Timeout) ->
+    get(Bucket, Key, Timeout, []);
+get(Bucket, Key, Headers) when is_list(Headers) ->
+    get(Bucket, Key, 5000, Headers).
+
+-spec get(Bucket::bucket(), Key::key(), [header()], timeout()) ->
+                 {ok, [ResponseHeaders::header()], Body::value()} |
+                 {ok, Body::value()} | term() |
+                 {ok, not_modified}.
+get(Bucket, Key, Timeout, Headers) ->
+    call({request, {get, Bucket, Key, Headers}}, Timeout).
 
 
 put(Bucket, Key, Value, ContentType) ->

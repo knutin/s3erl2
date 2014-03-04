@@ -4,7 +4,7 @@
 -module(s3_lib).
 
 %% API
--export([get/3, put/6, delete/3, list/5]).
+-export([get/4, put/6, delete/3, list/5]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/s3.hrl").
@@ -13,9 +13,10 @@
 %% API
 %%
 
--spec get(#config{}, bucket(), key()) -> {ok, body()} | {error, any()}.
-get(Config, Bucket, Key) ->
-    do_get(Config, Bucket, Key).
+-spec get(#config{}, bucket(), key(), [header()]) ->
+                 {ok, body()} | {error, any()}.
+get(Config, Bucket, Key, Headers) ->
+    do_get(Config, Bucket, Key, Headers).
 
 -spec put(#config{}, bucket(), key(), body(), contenttype(), [header()]) ->
                  {ok, etag()} | {error, any()}.
@@ -67,11 +68,11 @@ do_put(Config, Bucket, Key, Value, Headers) ->
             Error
     end.
 
-do_get(Config, Bucket, Key) ->
-    case request(Config, get, Bucket, Key, [], <<>>) of
-        {ok, Headers, Body} ->
+do_get(Config, Bucket, Key, Headers) ->
+    case request(Config, get, Bucket, Key, Headers, <<>>) of
+        {ok, ResponseHeaders, Body} ->
             if Config#config.return_headers ->
-                    {ok, Headers, Body};
+                    {ok, ResponseHeaders, Body};
                true ->
                     {ok, Body}
             end;
