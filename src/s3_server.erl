@@ -151,29 +151,29 @@ handle_request(Req, C, Attempts) ->
         {error, Reason} when Attempts < C#config.max_retries andalso
                              (Reason =:= connect_timeout orelse
                               Reason =:= timeout) ->
-            (C#config.retry_callback)(Reason, Attempts),
+            catch (C#config.retry_callback)(Reason, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
         {'EXIT', {econnrefused, _}} when Attempts < C#config.max_retries ->
             error_logger:info_msg("exit: ~p~n", [{Req, Attempts}]),
-            (C#config.retry_callback)(econnrefused, Attempts),
+            catch (C#config.retry_callback)(econnrefused, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
         {error, {"InternalError", _}} ->
-            (C#config.retry_callback)(internal_error, Attempts),
+            catch (C#config.retry_callback)(internal_error, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
         {error, {503, "Service Unavailable"}} ->
-            (C#config.retry_callback)(internal_error, Attempts),
+            catch (C#config.retry_callback)(internal_error, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
         Res ->
             End = os:timestamp(),
-            (C#config.post_request_cb)(Req, Res, timer:now_diff(End, Start)),
+            catch (C#config.post_request_cb)(Req, Res, timer:now_diff(End, Start)),
             Res
     end.
 
