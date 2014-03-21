@@ -208,8 +208,12 @@ default_config() ->
 
 credentials() ->
     File = filename:join([code:priv_dir(s3erl), "s3_credentials.term"]),
-    {ok, Cred} = file:consult(File),
-    Cred.
+    case file:consult(File) of
+        {ok, Cred} ->
+            Cred;
+        {error, enoent} ->
+            throw({error, missing_s3_credentials})
+    end.
 
 bucket() ->
     File = filename:join([code:priv_dir(s3erl), "bucket.term"]),
