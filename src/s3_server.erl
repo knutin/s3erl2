@@ -184,7 +184,10 @@ execute_request({put, Bucket, Key, Value, ContentType, Headers}, C) ->
 execute_request({delete, Bucket, Key}, C) ->
     s3_lib:delete(C, Bucket, Key);
 execute_request({list, Bucket, Prefix, MaxKeys, Marker}, C) ->
-    s3_lib:list(C, Bucket, Prefix, MaxKeys, Marker).
+    s3_lib:list(C, Bucket, Prefix, MaxKeys, Marker);
+execute_request({signed_url, Bucket, Key, Expires}, C) ->
+    s3_lib:signed_url(C, Bucket, Key, Expires).
+
 
 request_method({get, _, _, _})       -> get;
 request_method({put, _, _, _, _, _}) -> put;

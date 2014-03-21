@@ -4,7 +4,7 @@
 -module(s3_lib).
 
 %% API
--export([get/4, put/6, delete/3, list/5]).
+-export([get/4, put/6, delete/3, list/5, signed_url/4]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/s3.hrl").
@@ -43,6 +43,15 @@ list(Config, Bucket, Prefix, MaxKeys, Marker) ->
             Error
     end.
 
+signed_url(Config, Bucket, Key, Expires) ->
+    Signature = sign(Config#config.secret_access_key,
+                     stringToSign(get, "", integer_to_list(Expires),
+                                  "", Key, "")),
+    Url = build_url(Config#config.endpoint, Bucket, Key),
+    SignedUrl = [Url, "?", "AWSAccessKeyId=", Config#config.access_key, "&",
+                 "Expires=", integer_to_list(Expires), "&", "Signature=",
+                 http_uri:encode(binary_to_list(Signature))],
+    lists:flatten(SignedUrl).
 
 %%
 %% INTERNAL HELPERS
@@ -84,8 +93,6 @@ do_get(Config, Bucket, Key, Headers) ->
 
 do_delete(Config, Bucket, Key) ->
     request(Config, delete, Bucket, Key, [], <<>>).
-
-
 
 
 %%--------------------------------------------------------------------
@@ -164,6 +171,7 @@ is_amz_header(<<"x-amz-", _/binary>>) -> true; %% this is not working.
 is_amz_header("x-amz-"++ _)           -> true;
 is_amz_header(_)                      -> false.
 
+canonicalizedAmzHeaders("") -> "";
 canonicalizedAmzHeaders(AllHeaders) ->
     AmzHeaders = [{string:to_lower(K),V} || {K,V} <- AllHeaders, is_amz_header(K)],
     Strings = lists:map(
@@ -186,6 +194,12 @@ canonicalizedResource(Bucket, Path) ->
             ["/", Bucket, "/", URL]
     end.
 
+stringToSign(Verb, ContentMD5 = "", Date, Bucket = "", Path,
+             OriginalHeaders = "") ->
+    VerbString = string:to_upper(atom_to_list(Verb)),
+    Parts = [VerbString, ContentMD5, "", Date,
+             canonicalizedAmzHeaders(OriginalHeaders)],
+    [s3util:string_join(Parts, "\n"), canonicalizedResource(Bucket, Path)];
 stringToSign(Verb, ContentMD5, Date, Bucket, Path, OriginalHeaders) ->
     VerbString = string:to_upper(atom_to_list(Verb)),
     ContentType = proplists:get_value("Content-Type", OriginalHeaders, ""),
@@ -195,4 +209,3 @@ stringToSign(Verb, ContentMD5, Date, Bucket, Path, OriginalHeaders) ->
 
 sign(Key,Data) ->
     base64:encode(crypto:hmac(sha, Key, lists:flatten(Data))).
-

@@ -7,6 +7,7 @@
 -export([list/4, list/5]).
 -export([fold/4]).
 -export([stats/0]).
+-export([signed_url/3, signed_url/4]).
 
 -type value() :: string() | binary().
 -export_type([value/0]).
@@ -91,6 +92,12 @@ do_fold(Bucket, Prefix, F, [H|T], Acc) ->
 do_fold(_Bucket, _Prefix, _F, [], Acc) -> Acc. %% done
 
 stats() -> call(get_stats, 5000).
+
+signed_url(Bucket, Key, Expires) ->
+    call({request, {signed_url, Bucket, Key, Expires}}, 5000).
+
+signed_url(Bucket, Key, Expires, Timeout) ->
+    call({request, {signed_url, Bucket, Key, Expires}}, Timeout).
 
 call(Request, Timeout) ->
     gen_server:call(s3_server, Request, Timeout).
