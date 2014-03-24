@@ -11,7 +11,8 @@ integration_test_() ->
       ?_test(slow_endpoint()),
       ?_test(permission_denied()),
       ?_test(fold()),
-      ?_test(list_objects())
+      ?_test(list_objects()),
+      ?_test(signed_url())
      ]}.
 
 setup() ->
@@ -180,6 +181,15 @@ callback_test() ->
     end,
 
     s3_server:stop().
+
+signed_url() ->
+    {MegaSeconds, Seconds, _} = os:timestamp(),
+    Expires = MegaSeconds * 1000000 + Seconds,
+    Url = s3:signed_url(bucket(), <<"foo">>, Expires + 3600),
+    ?assertMatch(
+       {ok, {{200, _}, _, _}},
+       lhttpc:request(Url, get, [], [], 5000, [])
+      ).
 
 
 %%
