@@ -7,7 +7,7 @@
 -export([list/4, list/5]).
 -export([fold/4]).
 -export([stats/0]).
--export([signed_url/3, signed_url/4]).
+-export([signed_url/3, signed_url/4, signed_url/5]).
 
 -type value() :: string() | binary().
 -export_type([value/0]).
@@ -98,6 +98,9 @@ signed_url(Bucket, Key, Expires) ->
 
 signed_url(Bucket, Key, Expires, Timeout) ->
     call({request, {signed_url, Bucket, Key, Expires}}, Timeout).
+
+signed_url(Bucket, Key, Expires, Method, Timeout) ->
+    call({request, {signed_url, Bucket, Key, Method, Expires}}, Timeout).
 
 call(Request, Timeout) ->
     gen_server:call(s3_server, Request, Timeout).

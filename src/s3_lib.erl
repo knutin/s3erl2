@@ -4,7 +4,8 @@
 -module(s3_lib).
 
 %% API
--export([get/4, put/6, delete/3, list/5, signed_url/4]).
+-export([get/4, put/6, delete/3, list/5]).
+-export([signed_url/4, signed_url/5]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/s3.hrl").
@@ -44,14 +45,18 @@ list(Config, Bucket, Prefix, MaxKeys, Marker) ->
     end.
 
 signed_url(Config, Bucket, Key, Expires) ->
+    signed_url(Config, Bucket, Key, get, Expires).
+
+signed_url(Config, Bucket, Key, Method, Expires) ->
     Signature = sign(Config#config.secret_access_key,
-                     stringToSign(get, "", integer_to_list(Expires),
-                                  "", Key, "")),
+                     stringToSign(Method, "", integer_to_list(Expires),
+                                  Bucket, Key, "")),
     Url = build_url(Config#config.endpoint, Bucket, Key),
     SignedUrl = [Url, "?", "AWSAccessKeyId=", Config#config.access_key, "&",
                  "Expires=", integer_to_list(Expires), "&", "Signature=",
                  http_uri:encode(binary_to_list(Signature))],
     lists:flatten(SignedUrl).
+
 
 %%
 %% INTERNAL HELPERS
