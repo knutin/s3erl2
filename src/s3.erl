@@ -7,6 +7,7 @@
 -export([list/4, list/5]).
 -export([fold/4]).
 -export([stats/0]).
+-export([signed_url/3, signed_url/4, signed_url/5]).
 
 -type value() :: string() | binary().
 -export_type([value/0]).
@@ -15,6 +16,9 @@
 
 -type bucket() :: string().
 -export_type([bucket/0]).
+
+-type expire() :: pos_integer().
+-export_type([expire/0]).
 
 -type key() :: string().
 -export_type([key/0]).
@@ -91,6 +95,20 @@ do_fold(Bucket, Prefix, F, [H|T], Acc) ->
 do_fold(_Bucket, _Prefix, _F, [], Acc) -> Acc. %% done
 
 stats() -> call(get_stats, 5000).
+
+-spec signed_url(Bucket::bucket(), Key::key(), Expires::expire()) -> list().
+signed_url(Bucket, Key, Expires) ->
+    call({request, {signed_url, Bucket, Key, Expires}}, 5000).
+
+-spec signed_url(Bucket::bucket(), Key::key(), Expires::expire(),
+                 timeout()) -> list().
+signed_url(Bucket, Key, Expires, Timeout) ->
+    call({request, {signed_url, Bucket, Key, Expires}}, Timeout).
+
+-spec signed_url(Bucket::bucket(), Key::key(), Expires::expire(),
+                 Method::atom(), timeout()) -> list().
+signed_url(Bucket, Key, Expires, Method, Timeout) ->
+    call({request, {signed_url, Bucket, Key, Method, Expires}}, Timeout).
 
 call(Request, Timeout) ->
     gen_server:call(s3_server, Request, Timeout).
