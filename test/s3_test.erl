@@ -183,11 +183,16 @@ callback_test() ->
     s3_server:stop().
 
 signed_url() ->
+    delete_if_existing(bucket(), <<"foo">>),
+    ?assertEqual({ok, not_found}, s3:get(bucket(), <<"foo">>)),
+    {ok, _} = s3:put(bucket(), <<"foo">>, <<"signed_test">>, "text/plain"),
+
     {MegaSeconds, Seconds, _} = os:timestamp(),
     Expires = MegaSeconds * 1000000 + Seconds,
     Url = s3:signed_url(bucket(), <<"foo">>, Expires + 3600),
+
     ?assertMatch(
-       {ok, {{200, _}, _, _}},
+       {ok, {{200, _}, _, <<"signed_test">>}},
        lhttpc:request(Url, get, [], [], 5000, [])
       ).
 
