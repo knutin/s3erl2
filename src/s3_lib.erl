@@ -9,6 +9,7 @@
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/s3.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %%
 %% API
@@ -51,7 +52,7 @@ signed_url(Config, Bucket, Key, Method, Expires) ->
     Signature = sign(Config#config.secret_access_key,
                      stringToSign(Method, "", integer_to_list(Expires),
                                   Bucket, Key, "")),
-    Url = build_url(Config#config.endpoint, Bucket, Key),
+    Url = build_full_url(Config#config.endpoint, Bucket, Key),
     SignedUrl = [Url, "?", "AWSAccessKeyId=", Config#config.access_key, "&",
                  "Expires=", integer_to_list(Expires), "&", "Signature=",
                  http_uri:encode(binary_to_list(Signature))],
@@ -104,14 +105,21 @@ do_delete(Config, Bucket, Key) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
-
 build_host(Bucket) ->
     [Bucket, ".s3.amazonaws.com"].
+
+build_host(Endpoint, Bucket) ->
+    [Endpoint, "/", Bucket].
 
 build_url(undefined, Bucket, Path) ->
     lists:flatten(["http://", build_host(Bucket), "/", Path]);
 build_url(Endpoint, _Bucket, Path) ->
     lists:flatten(["http://", Endpoint, "/", Path]).
+
+build_full_url(undefined, Bucket, Path) ->
+    lists:flatten(["http://", build_host(Bucket), "/", Path]);
+build_full_url(Endpoint, Bucket, Path) ->
+    lists:flatten(["http://", build_host(Endpoint, Bucket), "/", Path]).
 
 request(Config, Method, Bucket, Path, Headers, Body) ->
     Date = httpd_util:rfc1123_date(),
