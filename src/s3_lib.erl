@@ -9,7 +9,6 @@
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/s3.hrl").
--include_lib("eunit/include/eunit.hrl").
 
 %%
 %% API
