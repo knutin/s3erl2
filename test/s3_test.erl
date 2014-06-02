@@ -199,13 +199,8 @@ signed_url() ->
 
 reload_config() ->
     OldConfig = s3_server:get_config(),
-    ?debugFmt("debug: old=~p", [OldConfig]),
-
     s3_server:reload_config([{max_retries, 5} | default_config()]),
-
-    NewConfig = s3_server:get_config(),
-    ?debugFmt("debug: new=~p", [NewConfig]),
-    ?assertNotEqual(OldConfig, NewConfig).
+    ?assertNotEqual(OldConfig, s3_server:get_config()).
 
 
 %%
