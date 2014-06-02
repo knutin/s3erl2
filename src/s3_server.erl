@@ -5,19 +5,15 @@
 -behaviour(gen_server).
 
 -include("../include/s3.hrl").
--include_lib("eunit/include/eunit.hrl").
 
 
 %% API
--export([start_link/1, reload_config/1, get_stats/0, stop/0,
+-export([start_link/1, reload_config/1, get_config/0, get_stats/0, stop/0,
          get_request_cost/0]).
 -export([default_max_concurrency_cb/1,
          default_retry_cb/2,
          default_post_request_cb/3]).
 
--ifdef(EUNIT).
--export([get_config/0]).
--endif.
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -25,6 +21,7 @@
 
 -record(counters, {puts = 0, gets = 0, deletes = 0}).
 -record(state, {config, workers, counters}).
+
 
 %%
 %% API
@@ -50,6 +47,7 @@ stop() ->
 
 get_config() ->
     gen_server:call(?MODULE, get_config).
+
 
 %%====================================================================
 %% gen_server callbacks
