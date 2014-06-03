@@ -6,11 +6,14 @@
 
 -include("../include/s3.hrl").
 
+
 %% API
--export([start_link/1, get_stats/0, stop/0, get_request_cost/0]).
+-export([start_link/1, reload_config/1, get_config/0, get_stats/0, stop/0,
+         get_request_cost/0]).
 -export([default_max_concurrency_cb/1,
          default_retry_cb/2,
          default_post_request_cb/3]).
+
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -19,12 +22,16 @@
 -record(counters, {puts = 0, gets = 0, deletes = 0}).
 -record(state, {config, workers, counters}).
 
+
 %%
 %% API
 %%
 
 start_link(Config) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Config, []).
+
+reload_config(Config) ->
+    gen_server:call(?MODULE, {reload_config, Config}).
 
 get_stats() ->
     gen_server:call(?MODULE, get_stats).
@@ -38,6 +45,10 @@ get_request_cost() ->
 stop() ->
     gen_server:call(?MODULE, stop).
 
+get_config() ->
+    gen_server:call(?MODULE, get_config).
+
+
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
@@ -45,35 +56,8 @@ stop() ->
 init(Config) ->
     process_flag(trap_exit, true),
 
-    AccessKey        = v(access_key, Config),
-    SecretAccessKey  = v(secret_access_key, Config),
-    Endpoint         = v(endpoint, Config),
-
-    Timeout          = v(timeout, Config, 1500),
-    RetryCallback    = v(retry_callback, Config,
-                         fun ?MODULE:default_retry_cb/2),
-    MaxRetries       = v(max_retries, Config, 3),
-    RetryDelay       = v(retry_delay, Config, 500),
-    MaxConcurrency   = v(max_concurrency, Config, 50),
-    MaxConcurrencyCB = v(max_concurrency_callback, Config,
-                         fun ?MODULE:default_max_concurrency_cb/1),
-    PostRequestCB    = v(post_request_callback, Config,
-                         fun ?MODULE:default_post_request_cb/3),
-    ReturnHeaders    = v(return_headers, Config, false),
-
-    C = #config{access_key         = AccessKey,
-                secret_access_key  = SecretAccessKey,
-                endpoint           = Endpoint,
-                timeout            = Timeout,
-                retry_callback     = RetryCallback,
-                max_retries        = MaxRetries,
-                retry_delay        = RetryDelay,
-                max_concurrency    = MaxConcurrency,
-                max_concurrency_cb = MaxConcurrencyCB,
-                post_request_cb    = PostRequestCB,
-                return_headers     = ReturnHeaders},
-
-    {ok, #state{config = C, workers = [], counters = #counters{}}}.
+    {ok, #state{config = create_config(Config), workers = [],
+                counters = #counters{}}}.
 
 handle_call({request, Req}, From, #state{config = C} = State)
   when length(State#state.workers) < C#config.max_concurrency ->
@@ -100,8 +84,14 @@ handle_call(get_stats, _From, #state{workers = Workers, counters = C} = State) -
              {num_workers, length(Workers)}],
     {reply, {ok, Stats}, State};
 
+handle_call({reload_config, Config}, _From, State) ->
+    {reply, ok, State#state{config = create_config(Config)}};
+
 handle_call(stop, _From, State) ->
-    {stop, normal, ok, State}.
+    {stop, normal, ok, State};
+
+handle_call(get_config, _From, #state{config = C} = State) ->
+    {reply, {ok, C}, State}.
 
 
 handle_cast(_Msg, State) ->
@@ -139,6 +129,35 @@ v(Key, Data) ->
 
 v(Key, Data, Default) ->
     proplists:get_value(Key, Data, Default).
+
+create_config(Config) ->
+    AccessKey        = v(access_key, Config),
+    SecretAccessKey  = v(secret_access_key, Config),
+    Endpoint         = v(endpoint, Config),
+
+    Timeout          = v(timeout, Config, 1500),
+    RetryCallback    = v(retry_callback, Config,
+                         fun ?MODULE:default_retry_cb/2),
+    MaxRetries       = v(max_retries, Config, 3),
+    RetryDelay       = v(retry_delay, Config, 500),
+    MaxConcurrency   = v(max_concurrency, Config, 50),
+    MaxConcurrencyCB = v(max_concurrency_callback, Config,
+                         fun ?MODULE:default_max_concurrency_cb/1),
+    PostRequestCB    = v(post_request_callback, Config,
+                         fun ?MODULE:default_post_request_cb/3),
+    ReturnHeaders    = v(return_headers, Config, false),
+
+    #config{access_key         = AccessKey,
+            secret_access_key  = SecretAccessKey,
+            endpoint           = Endpoint,
+            timeout            = Timeout,
+            retry_callback     = RetryCallback,
+            max_retries        = MaxRetries,
+            retry_delay        = RetryDelay,
+            max_concurrency    = MaxConcurrency,
+            max_concurrency_cb = MaxConcurrencyCB,
+            post_request_cb    = PostRequestCB,
+            return_headers     = ReturnHeaders}.
 
 %% @doc: Executes the given request, will retry if request failed
 handle_request(Req, C) ->

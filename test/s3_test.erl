@@ -12,7 +12,8 @@ integration_test_() ->
       ?_test(permission_denied()),
       ?_test(fold()),
       ?_test(list_objects()),
-      ?_test(signed_url())
+      ?_test(signed_url()),
+      ?_test(reload_config())
      ]}.
 
 setup() ->
@@ -195,6 +196,11 @@ signed_url() ->
        {ok, {{200, _}, _, <<"signed_test">>}},
        lhttpc:request(Url, get, [], [], 5000, [])
       ).
+
+reload_config() ->
+    OldConfig = s3_server:get_config(),
+    s3_server:reload_config([{max_retries, 5} | default_config()]),
+    ?assertNotEqual(OldConfig, s3_server:get_config()).
 
 
 %%
