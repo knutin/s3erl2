@@ -175,20 +175,28 @@ handle_request(Req, C, Attempts) ->
             handle_request(Req, C, Attempts + 1);
 
         {'EXIT', {econnrefused, _}} when Attempts < C#config.max_retries ->
-            error_logger:info_msg("exit: ~p~n", [{Req, Attempts}]),
             catch (C#config.retry_callback)(econnrefused, Attempts),
             timer:sleep(C#config.retry_delay),
             handle_request(Req, C, Attempts + 1);
 
-        {error, {"InternalError", _}} ->
-            catch (C#config.retry_callback)(internal_error, Attempts),
-            timer:sleep(C#config.retry_delay),
-            handle_request(Req, C, Attempts + 1);
-
-        {error, {503, "Service Unavailable"}} ->
-            catch (C#config.retry_callback)(internal_error, Attempts),
-            timer:sleep(C#config.retry_delay),
-            handle_request(Req, C, Attempts + 1);
+        {error, Error} when Attempts < C#config.max_retries ->
+            Retry = case Error of
+                        {"InternalError", _} -> true;
+                        {503, "Service Unavailable"} -> true;
+                        {"SlowDown", _} -> true;
+                        _ -> false
+                    end,
+            case Retry of
+                true ->
+                    catch (C#config.retry_callback)(internal_error, Attempts),
+                    timer:sleep(C#config.retry_delay),
+                    handle_request(Req, C, Attempts + 1);
+                false ->
+                    End = os:timestamp(),
+                    catch (C#config.post_request_cb)(Req, {error, Error},
+                                                     timer:now_diff(End, Start)),
+                    {error, Error}
+            end;
 
         Res ->
             End = os:timestamp(),
