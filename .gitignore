@@ -3,3 +3,4 @@ priv/s3_credentials.term
 *~
 .eunit
 deps/*
+.rebar

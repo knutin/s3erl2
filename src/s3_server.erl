@@ -169,6 +169,7 @@ handle_request(Req, C, Attempts) ->
         %% Continue trying if we have connection related errors
         {error, Reason} when Attempts < C#config.max_retries andalso
                              (Reason =:= connect_timeout orelse
+                              Reason =:= connection_closed orelse
                               Reason =:= timeout) ->
             catch (C#config.retry_callback)(Reason, Attempts),
             timer:sleep(C#config.retry_delay),
