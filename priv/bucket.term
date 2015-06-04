@@ -1,1 +1,1 @@
-{bucket, "test-ga-s3erl"}.
+{bucket, <<"test-ga-s3erl">>}.

@@ -2,68 +2,77 @@
 -include_lib("eunit/include/eunit.hrl").
 
 integration_test_() ->
-    {foreach,
-     fun setup/0, fun teardown/1,
+    {foreach, fun setup/0, fun teardown/1,
      [
-      ?_test(get_put()),
-      ?_test(concurrency_limit()),
-      ?_test(timeout_retry()),
-      ?_test(slow_endpoint()),
-      ?_test(permission_denied()),
-      ?_test(fold()),
-      ?_test(list_objects()),
-      ?_test(signed_url()),
-      ?_test(reload_config())
+      ?_test(get_put())
+     ,?_test(concurrency_limit())
+     ,?_test(timeout_retry())
+     ,?_test(slow_endpoint())
+     %% ,?_test(permission_denied()) % Fails with fakes3
+     ,?_test(fold())
+     ,?_test(list_objects())
+     ,?_test(signed_url())
+     ,?_test(reload_config())
+     ,?_test(callback())
      ]}.
 
 setup() ->
-    application:start(asn1),
-    application:start(crypto),
-    application:start(public_key),
-    application:start(ssl),
-    application:start(lhttpc),
-    {ok, Pid} = s3_server:start_link(default_config()),
-    [Pid].
+    {ok, _} = application:ensure_all_started(lhttpc),
+    {ok, _} = s3_server:start_link([]),
+    [].
 
-teardown(Pids) ->
-    [begin unlink(P), exit(P, kill) end || P <- Pids].
+teardown([]) ->
+    s3_server:stop().
 
 
 
+%%
+%% TESTS
+%%
 
 
 get_put() ->
-    delete_if_existing(bucket(), <<"foo">>),
+    s3:delete(bucket(), <<"foo">>, default_profile(), 5000),
+    s3:delete(bucket(), <<"foo-copy">>, default_profile(), 5000),
 
-    ?assertEqual({ok, not_found}, s3:get(bucket(), <<"foo">>)),
-    ?assertEqual({ok, not_found}, s3:get(bucket(), "foo")),
+    ?assertEqual({error, document_not_found},
+                 s3:get(bucket(), <<"foo">>, [], default_profile(), 5000)),
 
-    ?assertMatch({ok, _}, s3:put(bucket(), <<"foo">>, <<"bazbar">>, "text/plain")),
-    ?assertEqual({ok, <<"bazbar">>}, s3:get(bucket(), <<"foo">>)),
+    ?assertMatch({ok, _},
+                 s3:put(bucket(), <<"foo">>, <<"bazbar">>, <<"text/plain">>,
+                        [], default_profile(), 5000)),
+    ?assertEqual({ok, <<"bazbar">>},
+                 s3:get(bucket(), <<"foo">>, [], default_profile(), 5000)),
 
-    ?assertMatch({ok, _}, s3:put(bucket(), <<"foo-copy">>, <<>>, "text/plain",
-                                 5000, [{"x-amz-copy-source", bucket() ++ "/foo"}])).
+    ?assertMatch({ok, _},
+                 s3:put(bucket(), <<"foo-copy">>, <<>>, <<"text/plain">>,
+                        [{<<"x-amz-copy-source">>, <<(bucket())/binary, "/foo">>}],
+                        default_profile(), 5000)),
+    ?assertEqual({ok, <<"bazbar">>},
+                 s3:get(bucket(), <<"foo-copy">>, [], default_profile(), 5000)).
 
 permission_denied() ->
     ?assertEqual({error, {"AccessDenied", "Access Denied"}},
-                 s3:put("foobar", <<"foo">>, <<"bazbar">>, "text/plain")).
+                 s3:put(<<"foobar">>, <<"foo">>, <<"bazbar">>, <<"text/plain">>,
+                        [], default_profile(), 5000)).
 
 concurrency_limit() ->
     Parent = self(),
     MaxConcurrencyCB = fun (N) -> Parent ! {max_concurrency, N} end,
 
-    s3_server:stop(),
-    s3_server:start_link([{max_concurrency_callback, MaxConcurrencyCB},
-                          {max_concurrency, 3}] ++ default_config()),
+    s3_server:reload_config([{max_concurrency_callback, MaxConcurrencyCB},
+                             {max_concurrency, 3}]),
 
     meck:new(s3_lib),
-    GetF = fun (_, _, _, _) -> timer:sleep(50), {ok, <<"bazbar">>} end,
+    GetF = fun (_, _, _, _, _) -> timer:sleep(50), {ok, <<"bazbar">>} end,
     meck:expect(s3_lib, get, GetF),
 
-    P1 = spawn(fun() -> Parent ! {self(), s3:get(bucket(), <<"foo">>)} end),
-    P2 = spawn(fun() -> Parent ! {self(), s3:get(bucket(), <<"foo">>)} end),
-    P3 = spawn(fun() -> Parent ! {self(), s3:get(bucket(), <<"foo">>)} end),
-    P4 = spawn(fun() -> Parent ! {self(), s3:get(bucket(), <<"foo">>)} end),
+    DoGet = fun () -> s3:get(bucket(), <<"foo">>, [], default_profile(), 5000) end,
+
+    P1 = spawn(fun() -> Parent ! {self(), DoGet()} end),
+    P2 = spawn(fun() -> Parent ! {self(), DoGet()} end),
+    P3 = spawn(fun() -> Parent ! {self(), DoGet()} end),
+    P4 = spawn(fun() -> Parent ! {self(), DoGet()} end),
 
     receive M0 -> ?assertEqual({max_concurrency, 3}, M0) end,
     ?assertEqual([{error, max_concurrency},
@@ -72,9 +81,7 @@ concurrency_limit() ->
                   {ok, <<"bazbar">>}],
                  lists:sort([receive {P, M} -> M  end || P <- [P1,P2,P3,P4]])),
 
-    ?assertEqual({ok, <<"bazbar">>}, s3:get(bucket(), <<"foo">>)),
-    ?assertEqual({ok, [{puts, 0}, {gets, 4}, {deletes, 0}, {num_workers, 0}]},
-                 s3_server:get_stats()),
+    ?assertEqual({ok, <<"bazbar">>}, s3:get(bucket(), <<"foo">>, [], default_profile(), 5000)),
 
     ?assert(meck:validate(s3_lib)),
     meck:unload(s3_lib).
@@ -84,10 +91,10 @@ timeout_retry() ->
     RetryCb = fun (Reason, Attempt) ->
                       Parent ! {Reason, Attempt}
               end,
-    s3_server:stop(),
-    s3_server:start_link([{timeout, 10},
-                          {retry_callback, RetryCb},
-                          {retry_delay, 10}] ++ default_config()),
+
+    s3_server:reload_config([{timeout, 10},
+                             {retry_callback, RetryCb},
+                             {retry_delay, 10}]),
 
     meck:new(lhttpc),
     TimeoutF = fun (_, _, _, _, _, _) ->
@@ -98,7 +105,8 @@ timeout_retry() ->
     %% meck:expect(lhttpc, request, TimeoutF),
     %% meck:expect(lhttpc, request, TimeoutF),
 
-    ?assertEqual({error, timeout}, s3:get(bucket(), <<"foo">>)),
+    ?assertEqual({error, timeout},
+                 s3:get(bucket(), <<"foo">>, [], default_profile(), 5000)),
 
     receive M1 -> ?assertEqual({timeout, 0}, M1) end,
     receive M2 -> ?assertEqual({timeout, 1}, M2) end,
@@ -110,64 +118,57 @@ timeout_retry() ->
 
 slow_endpoint() ->
     Port = webserver:start(gen_tcp, [fun very_slow_response/5]),
-
-    s3_server:stop(),
-    s3_server:start_link([{timeout, 10},
-                          {endpoint, "localhost:" ++ integer_to_list(Port)},
-                          {retry_delay, 10}] ++ default_config()),
-
-    ?assertEqual({error, timeout}, s3:get(bucket(), <<"foo">>, 100)).
+    PortBin = list_to_binary(integer_to_list(Port)),
+    s3_server:reload_config([{timeout, 10},
+                             {retry_delay, 10}]),
+    Profile = {<<"foo">>, <<"bar">>, <<"localhost:", PortBin/binary>>},
+    ?assertEqual({error, timeout}, s3:get(bucket(), <<"foo">>, [], Profile, 100)).
 
 list_objects() ->
-    {ok, _} = s3:put(bucket(), "1/1", "foo", "text/plain"),
-    {ok, _} = s3:put(bucket(), "1/2", "foo", "text/plain"),
-    {ok, _} = s3:put(bucket(), "1/3", "foo", "text/plain"),
-    {ok, _} = s3:put(bucket(), "2/1", "foo", "text/plain"),
+    {ok, _} = s3:put(bucket(), <<"1/1">>, <<"foo">>, <<"text/plain">>, [], default_profile(), 5000),
+    {ok, _} = s3:put(bucket(), <<"1/2">>, <<"foo">>, <<"text/plain">>, [], default_profile(), 5000),
+    {ok, _} = s3:put(bucket(), <<"1/3">>, <<"foo">>, <<"text/plain">>, [], default_profile(), 5000),
+    {ok, _} = s3:put(bucket(), <<"2/1">>, <<"foo">>, <<"text/plain">>, [], default_profile(), 5000),
 
 
     ?assertEqual({ok, [<<"1/1">>, <<"1/2">>, <<"1/3">>]},
-                 s3:list(bucket(), "1/", 10, "")),
+                 s3:list(bucket(), <<"1/">>, 10, <<"">>, default_profile(), 5000)),
 
     ?assertEqual({ok, [<<"1/3">>]},
-                 s3:list(bucket(), "1/", 10, "1/2")),
+                 s3:list(bucket(), <<"1/">>, 10, <<"1/2">>, default_profile(), 5000)),
 
     %% List all, includes keys from other tests.
     ?assertEqual({ok, [<<"1/1">>, <<"1/2">>, <<"1/3">>, <<"2/1">>,
                        <<"foo">>, <<"foo-copy">>]},
-                 s3:list(bucket(), "", 10, "")).
+                 s3:list(bucket(), <<"">>, 10, <<"">>, default_profile(), 5000)).
 
 fold() ->
     %% Depends on earlier tests to setup data.
     ?assertEqual([<<"1/3">>, <<"1/2">>, <<"1/1">>],
-                 s3:fold(bucket(), "1/", fun(Key, Acc) -> [Key|Acc] end, [])),
+                 s3:fold(bucket(), <<"1/">>, fun(Key, Acc) -> [Key|Acc] end, [],
+                         default_profile(), 5000)),
 
      %% List all, includes keys from other tests.
     ?assertEqual([<<"foo-copy">>, <<"foo">>, <<"2/1">>, <<"1/3">>, <<"1/2">>,
                   <<"1/1">>],
-                 s3:fold(bucket(), "", fun(Key, Acc) -> [Key|Acc] end, [])).
+                 s3:fold(bucket(), <<"">>, fun(Key, Acc) -> [Key|Acc] end, [],
+                        default_profile(), 5000)).
 
-callback_test() ->
-    application:start(asn1),
-    application:start(crypto),
-    application:start(public_key),
-    application:start(ssl),
-    application:start(lhttpc),
-
+callback() ->
     Parent = self(),
     F = fun (Request, Response, ElapsedUs) ->
                 Parent ! {Request, Response, ElapsedUs}
         end,
 
-    {ok, _} = s3_server:start_link([{post_request_callback, F} | credentials()]),
+    ok = s3_server:reload_config([{post_request_callback, F}]),
 
-
-    {ok, _} = s3:put(bucket(), "foo", "bar", "text/plain"),
-    {ok, _} = s3:get(bucket(), "foo"),
+    {ok, _} = s3:put(bucket(), <<"foo">>, <<"bar">>, <<"text/plain">>, [], default_profile(), 5000),
+    {ok, _} = s3:get(bucket(), <<"foo">>, [], default_profile(), 5000),
 
     receive M1 ->
             fun () ->
                     {Request, Response, _ElapsedUs} = M1,
-                    ?assertEqual({put, bucket(), "foo", "bar", "text/plain", []},
+                    ?assertEqual({put, bucket(), <<"foo">>, <<"bar">>, <<"text/plain">>, []},
                                  Request),
                     ?assertMatch({ok, _}, Response)
             end()
@@ -176,21 +177,21 @@ callback_test() ->
     receive M2 ->
             fun () ->
                     {Request, Response, _ElapsedUs} = M2,
-                    ?assertEqual({get, bucket(), "foo", []}, Request),
+                    ?assertEqual({get, bucket(), <<"foo">>, []}, Request),
                     ?assertEqual({ok, <<"bar">>}, Response)
             end()
-    end,
-
-    s3_server:stop().
+    end.
 
 signed_url() ->
-    delete_if_existing(bucket(), <<"foo">>),
-    ?assertEqual({ok, not_found}, s3:get(bucket(), <<"foo">>)),
-    {ok, _} = s3:put(bucket(), <<"foo">>, <<"signed_test">>, "text/plain"),
+    s3:delete(bucket(), <<"foo">>, default_profile(), 5000),
+    ?assertEqual({error, document_not_found},
+                 s3:get(bucket(), <<"foo">>, [], default_profile(), 5000)),
+    {ok, _} = s3:put(bucket(), <<"foo">>, <<"signed_test">>, <<"text/plain">>,
+                     [], default_profile(), 5000),
 
     {MegaSeconds, Seconds, _} = os:timestamp(),
     Expires = MegaSeconds * 1000000 + Seconds,
-    Url = s3:signed_url(bucket(), <<"foo">>, Expires + 3600),
+    Url = s3:signed_url(bucket(), <<"foo">>, Expires + 3600, get, default_profile(), 5000),
 
     ?assertMatch(
        {ok, {{200, _}, _, <<"signed_test">>}},
@@ -199,7 +200,7 @@ signed_url() ->
 
 reload_config() ->
     OldConfig = s3_server:get_config(),
-    s3_server:reload_config([{max_retries, 5} | default_config()]),
+    s3_server:reload_config([{max_retries, 5}]),
     ?assertNotEqual(OldConfig, s3_server:get_config()).
 
 
@@ -225,10 +226,13 @@ delete_if_existing(Bucket, Key) ->
     end.
 
 default_config() ->
-    credentials().
+    [{endpoint, "localhost:4567"} | credentials()].
+
+default_profile() ->
+    {<<"access_key">>, <<"secret_access_key">>, <<"localhost:4567">>}.
 
 credentials() ->
-    File = filename:join([code:priv_dir(s3erl), "s3_credentials.term"]),
+    File = filename:join([code:priv_dir(s3erl2), "s3_credentials.term"]),
     case file:consult(File) of
         {ok, Cred} ->
             Cred;
@@ -237,6 +241,6 @@ credentials() ->
     end.
 
 bucket() ->
-    File = filename:join([code:priv_dir(s3erl), "bucket.term"]),
+    File = filename:join([code:priv_dir(s3erl2), "bucket.term"]),
     {ok, Config} = file:consult(File),
     proplists:get_value(bucket, Config).

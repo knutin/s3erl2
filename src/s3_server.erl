@@ -59,17 +59,17 @@ init(Config) ->
     {ok, #state{config = create_config(Config), workers = [],
                 counters = #counters{}}}.
 
-handle_call({request, Req}, From, #state{config = C} = State)
+handle_call({request, Req, Profile}, From, #state{config = C} = State)
   when length(State#state.workers) < C#config.max_concurrency ->
     WorkerPid =
         spawn_link(fun() ->
-                           gen_server:reply(From, handle_request(Req, C))
+                           gen_server:reply(From, handle_request(Req, C, Profile))
                    end),
     NewState = State#state{workers = [WorkerPid | State#state.workers],
                            counters = update_counters(Req, State#state.counters)},
     {noreply, NewState};
 
-handle_call({request, _}, _From, #state{config = C} = State)
+handle_call({request, _, _}, _From, #state{config = C} = State)
   when length(State#state.workers) >= C#config.max_concurrency ->
     (C#config.max_concurrency_cb)(C#config.max_concurrency),
     {reply, {error, max_concurrency}, State};
@@ -124,18 +124,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
-v(Key, Data) ->
-    proplists:get_value(Key, Data).
-
 v(Key, Data, Default) ->
     proplists:get_value(Key, Data, Default).
 
 create_config(Config) ->
-    AccessKey        = v(access_key, Config),
-    SecretAccessKey  = v(secret_access_key, Config),
-    Endpoint         = v(endpoint, Config),
-
-    Timeout          = v(timeout, Config, 1500),
+    Timeout          = v(s3_timeout, Config, 1500),
     RetryCallback    = v(retry_callback, Config,
                          fun ?MODULE:default_retry_cb/2),
     MaxRetries       = v(max_retries, Config, 3),
@@ -147,10 +140,7 @@ create_config(Config) ->
                          fun ?MODULE:default_post_request_cb/3),
     ReturnHeaders    = v(return_headers, Config, false),
 
-    #config{access_key         = AccessKey,
-            secret_access_key  = SecretAccessKey,
-            endpoint           = Endpoint,
-            timeout            = Timeout,
+    #config{timeout            = Timeout,
             retry_callback     = RetryCallback,
             max_retries        = MaxRetries,
             retry_delay        = RetryDelay,
@@ -160,12 +150,12 @@ create_config(Config) ->
             return_headers     = ReturnHeaders}.
 
 %% @doc: Executes the given request, will retry if request failed
-handle_request(Req, C) ->
-    handle_request(Req, C, 0).
+handle_request(Req, C, Profile) ->
+    handle_request(Req, C, Profile, 0).
 
-handle_request(Req, C, Attempts) ->
+handle_request(Req, C, Profile, Attempts) ->
     Start = os:timestamp(),
-    case catch execute_request(Req, C) of
+    case catch execute_request(Req, C, Profile) of
         %% Continue trying if we have connection related errors
         {error, Reason} when Attempts < C#config.max_retries andalso
                              (Reason =:= connect_timeout orelse
@@ -173,12 +163,12 @@ handle_request(Req, C, Attempts) ->
                               Reason =:= timeout) ->
             catch (C#config.retry_callback)(Reason, Attempts),
             timer:sleep(C#config.retry_delay),
-            handle_request(Req, C, Attempts + 1);
+            handle_request(Req, C, Profile, Attempts + 1);
 
         {'EXIT', {econnrefused, _}} when Attempts < C#config.max_retries ->
             catch (C#config.retry_callback)(econnrefused, Attempts),
             timer:sleep(C#config.retry_delay),
-            handle_request(Req, C, Attempts + 1);
+            handle_request(Req, C, Profile, Attempts + 1);
 
         {error, Error} when Attempts < C#config.max_retries ->
             Retry = case Error of
@@ -191,7 +181,7 @@ handle_request(Req, C, Attempts) ->
                 true ->
                     catch (C#config.retry_callback)(internal_error, Attempts),
                     timer:sleep(C#config.retry_delay),
-                    handle_request(Req, C, Attempts + 1);
+                    handle_request(Req, C, Profile, Attempts + 1);
                 false ->
                     End = os:timestamp(),
                     catch (C#config.post_request_cb)(Req, {error, Error},
@@ -205,26 +195,27 @@ handle_request(Req, C, Attempts) ->
             Res
     end.
 
-execute_request({get, Bucket, Key, Headers}, C) ->
-    s3_lib:get(C, Bucket, Key, Headers);
-execute_request({put, Bucket, Key, Value, ContentType, Headers}, C) ->
-    s3_lib:put(C, Bucket, Key, Value, ContentType, Headers);
-execute_request({delete, Bucket, Key}, C) ->
-    s3_lib:delete(C, Bucket, Key);
-execute_request({list, Bucket, Prefix, MaxKeys, Marker}, C) ->
-    s3_lib:list(C, Bucket, Prefix, MaxKeys, Marker);
-execute_request({signed_url, Bucket, Key, Expires}, C) ->
-    s3_lib:signed_url(C, Bucket, Key, Expires);
-execute_request({signed_url, Bucket, Key, Method, Expires}, C) ->
-    s3_lib:signed_url(C, Bucket, Key, Method, Expires).
+
+execute_request({get, Bucket, Key, Headers}, C, Profile) ->
+    s3_lib:get(C, Profile, Bucket, Key, Headers);
+execute_request({put, Bucket, Key, Value, ContentType, Headers}, C, Profile) ->
+    s3_lib:put(C, Profile, Bucket, Key, Value, ContentType, Headers);
+execute_request({delete, Bucket, Key}, C, Profile) ->
+    s3_lib:delete(C, Profile, Bucket, Key);
+execute_request({list, Bucket, Prefix, MaxKeys, Marker}, C, Profile) ->
+    s3_lib:list(C, Profile, Bucket, Prefix, MaxKeys, Marker);
+execute_request({signed_url, Bucket, Key, Expires}, C, Profile) ->
+    s3_lib:signed_url(C, Profile, Bucket, Key, Expires);
+execute_request({signed_url, Bucket, Key, Method, Expires}, C, Profile) ->
+    s3_lib:signed_url(C, Profile, Bucket, Key, Method, Expires).
 
 
 
-request_method({get, _, _, _})        -> get;
-request_method({put, _, _, _, _, _})  -> put;
-request_method({delete, _, _})        -> delete;
-request_method({list, _, _, _, _})    -> get;
-request_method({signed_url, _, _, _}) -> ignore.
+request_method({get, _, _, _})           -> get;
+request_method({put, _, _, _, _, _})     -> put;
+request_method({delete, _, _})           -> delete;
+request_method({list, _, _, _, _})       -> get;
+request_method({signed_url, _, _, _, _}) -> ignore.
 
 
 update_counters(Req, Cs) ->

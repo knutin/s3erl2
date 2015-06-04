@@ -1,4 +1,6 @@
-# S3
+# S3, version 2
+
+NOTE: This is work in progress! Use at your own risk!
 
 This is an Erlang client for Amazons Simple Storage Service, aka
 S3. It is based on the much forked s3erl library, originally written
@@ -18,12 +20,11 @@ useful in busier systems where reliability is key.
    concurrency limit reached.
  * Configurable endpoint, which means you can use `fakes3` for
    testing.
+ * Configurable credentials and endpoint at request time, which means
+   you can use different credentials for different endpoints or
+   buckets.
 
-Limitations:
-
- * Only one instance of `s3_server` with one configuration(endpoint,
-   credentials, etc) can exist within the VM as we used named
-   gen_servers.
+NOTE: `s3erl2` is not API-compatible with `s3erl`.
 
 
 ## Usage
@@ -37,9 +38,7 @@ s3_spec() ->
         [{timeout, 15000},
          {max_concurrency, 500},
          {retry_callback, fun my_module:s3_retry_callback/2},
-         {post_request_callback, fun my_module:s3_post_request_callback/3},
-         {access_key, "foobar"},
-         {secret_access_key, "secret"}],
+         {post_request_callback, fun my_module:s3_post_request_callback/3}],
 
     {s3, {s3_server, start_link, [Options]},
      permanent, 5000, worker, []}.
@@ -47,15 +46,15 @@ s3_spec() ->
 
 You can of course also start `s3_server` from the shell for
 experimenting, like this:
-`s3_server:start_link([{access_key, "..."}, {secret_access_key, "..."}])`
+`s3_server:start_link([])`
 
 Then you can start using S3:
 ```erlang
-1> s3:get("my-bucket", "my-key").
-{ok, not_found}
-2> s3:put("my-bucket", "my-key", <<"big binary blob">>, "text/plain").
-{ok, "etag"}
-3> s3:get("my-bucket", "my-key").
+1> s3:get(<<"my-bucket">>, <<"my-key">>).
+{error, document_not_found}
+2> s3:put(<<"my-bucket">>, <<"my-key">>, <<"big binary blob">>, <<"text/plain">>).
+{ok, <<"etag">>}
+3> s3:get(<<"my-bucket">>, <<"my-key">>).
 {ok, <<"big binary blob">>}
 ```
 

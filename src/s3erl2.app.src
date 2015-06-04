@@ -1,6 +1,6 @@
-{application, s3erl,
+{application, s3erl2,
  [
-  {description, "s3erl app"},
+  {description, "s3erl2 app"},
   {vsn, "0.1.0"},
   {registered, []},
   {applications, [kernel,

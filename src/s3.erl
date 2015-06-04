@@ -1,114 +1,102 @@
 %% @doc Library for accessing Amazons S3 database.
 -module(s3).
+-include("s3.hrl").
 
--export([get/2, get/3]).
--export([put/4, put/5, put/6]).
--export([delete/2, delete/3]).
--export([list/4, list/5]).
--export([fold/4]).
+-export([get/2, get/5]).
+-export([put/4, put/7]).
+-export([delete/2, delete/4]).
+-export([list/4, list/6]).
+-export([fold/4, fold/6]).
 -export([stats/0]).
--export([signed_url/3, signed_url/4, signed_url/5]).
+-export([signed_url/3, signed_url/6]).
 
--type value() :: string() | binary().
--export_type([value/0]).
+-export_type([key/0, value/0, bucket/0]).
 
--type header() :: {string(), string()}.
+%%
+%% API
+%%
 
--type bucket() :: string().
--export_type([bucket/0]).
-
--type expire() :: pos_integer().
--export_type([expire/0]).
-
--type key() :: string().
--export_type([key/0]).
-
--spec get(Bucket::bucket(), Key::key()) ->
-                 {ok, [ResponseHeaders::header()], Body::value()} |
-                 {ok, Body::value()} | term().
 get(Bucket, Key) ->
-    get(Bucket, Key, 5000, []).
+    get(Bucket, Key, [], default, 5000).
 
--spec get(Bucket::bucket(), Key::key(), timeout() | [header()]) ->
-                 {ok, [ResponseHeaders::header()], Body::value()} |
-                 {ok, Body::value()} | term() |
-                 {ok, not_modified}.
-get(Bucket, Key, Timeout) when is_integer(Timeout) ->
-    get(Bucket, Key, Timeout, []);
-get(Bucket, Key, Headers) when is_list(Headers) ->
-    get(Bucket, Key, 5000, Headers).
+-spec get(bucket(), key(), [header()], profile(), timeout()) ->
+                 {ok, {headers(), value()}} |
+                 {error, error_reason()}.
+get(Bucket, Key, Headers, Profile, Timeout) ->
+    call({request, {get, Bucket, Key, Headers}, Profile}, Timeout).
 
--spec get(Bucket::bucket(), Key::key(), [header()], timeout()) ->
-                 {ok, [ResponseHeaders::header()], Body::value()} |
-                 {ok, Body::value()} | term() |
-                 {ok, not_modified}.
-get(Bucket, Key, Timeout, Headers) ->
-    call({request, {get, Bucket, Key, Headers}}, Timeout).
 
 
 put(Bucket, Key, Value, ContentType) ->
-    put(Bucket, Key, Value, ContentType, 5000).
+    put(Bucket, Key, Value, ContentType, [], default, 5000).
 
-put(Bucket, Key, Value, ContentType, Timeout) ->
-    put(Bucket, Key, Value, ContentType, Timeout, []).
+-spec put(bucket(), key(), value(), contenttype(), headers(), profile(), timeout()) ->
+                 {ok, etag()} | {error, error_reason()}.
+put(Bucket, Key, Value, ContentType, Headers, Profile, Timeout) ->
+    call({request, {put, Bucket, Key, Value, ContentType, Headers}, Profile}, Timeout).
 
--spec put(Bucket::bucket(), Key::key(), Value::value(),
-          ContentType::string(), timeout(), list(header())) ->
-                 {ok, Etag::any()} | ok | any().
-put(Bucket, Key, Value, ContentType, Timeout, Headers) ->
-    call({request, {put, Bucket, Key, Value, ContentType, Headers}}, Timeout).
+
+delete_bucket(Bucket) ->
+    delete_bucket(Bucket, default, 5000).
+
+delete_bucket(Bucket, Profile, Timeout) ->
+    call({request, {delete_bucket, Bucket}, Profile}, Timeout).
 
 
 delete(Bucket, Key) ->
-    delete(Bucket, Key, 5000).
+    delete(Bucket, Key, default, 5000).
 
-delete(Bucket, Key, Timeout) ->
-    call({request, {delete, Bucket, Key}}, Timeout).
+delete(Bucket, Key, Profile, Timeout) ->
+    call({request, {delete, Bucket, Key}, Profile}, Timeout).
+
 
 list(Bucket, Prefix, MaxKeys, Marker) ->
-    list(Bucket, Prefix, MaxKeys, Marker, 5000).
+    list(Bucket, Prefix, MaxKeys, Marker, default, 5000).
 
-list(Bucket, Prefix, MaxKeys, Marker, Timeout) ->
-    call({request, {list, Bucket, Prefix, integer_to_list(MaxKeys), Marker}},
+list(Bucket, Prefix, MaxKeys, Marker, Profile, Timeout) ->
+    call({request, {list, Bucket, Prefix, integer_to_list(MaxKeys), Marker}, Profile},
          Timeout).
 
--spec fold(Bucket::string(), Prefix::string(),
-           FoldFun::fun((Key::string(), Acc::term()) -> NewAcc::term()),
-           InitAcc::term()) -> FinalAcc::term().
+
 fold(Bucket, Prefix, F, Acc) ->
-    case s3:list(Bucket, Prefix, 100, "") of
+    fold(Bucket, Prefix, F, Acc, default, 5000).
+
+-spec fold(bucket(), binary(),
+           FoldFun::fun((key(), Acc::term()) -> NewAcc::term()),
+           InitAcc::term(), profile(), timeout()) -> FinalAcc::term().
+fold(Bucket, Prefix, F, Acc, Profile, Timeout) ->
+    case s3:list(Bucket, Prefix, 100, "", Profile, Timeout) of
         {ok, Keys} when is_list(Keys) ->
-            do_fold(Bucket, Prefix, F, Keys, Acc);
+            do_fold(Bucket, Prefix, F, Keys, Acc, Profile, Timeout);
         %% we only expect an error on the first call to list.
         {ok, not_found} -> {error, not_found};
         {error, Rsn} -> {error, Rsn}
     end.
 
-do_fold(Bucket, Prefix, F, [Last], Acc) ->
+do_fold(Bucket, Prefix, F, [Last], Acc, Profile, Timeout) ->
     NewAcc = F(Last, Acc),
     %% get next part of the keys from the backup
-    {ok, Keys} = list(Bucket, Prefix, 100, Last),
-    do_fold(Bucket, Prefix, F, Keys, NewAcc);
-do_fold(Bucket, Prefix, F, [H|T], Acc) ->
+    {ok, Keys} = list(Bucket, Prefix, 100, Last, Profile, Timeout),
+    do_fold(Bucket, Prefix, F, Keys, NewAcc, Profile, Timeout);
+do_fold(Bucket, Prefix, F, [H|T], Acc, Profile, Timeout) ->
     %% this is the normal (recursive) case.
-    do_fold(Bucket, Prefix, F, T, F(H, Acc));
-do_fold(_Bucket, _Prefix, _F, [], Acc) -> Acc. %% done
+    do_fold(Bucket, Prefix, F, T, F(H, Acc), Profile, Timeout);
+do_fold(_Bucket, _Prefix, _F, [], Acc, _Profile, _Timeout) ->
+    Acc. %% done
 
 stats() -> call(get_stats, 5000).
 
--spec signed_url(Bucket::bucket(), Key::key(), Expires::expire()) -> list().
 signed_url(Bucket, Key, Expires) ->
-    call({request, {signed_url, Bucket, Key, Expires}}, 5000).
+    signed_url(Bucket, Key, Expires, get, default, 5000).
 
--spec signed_url(Bucket::bucket(), Key::key(), Expires::expire(),
-                 timeout()) -> list().
-signed_url(Bucket, Key, Expires, Timeout) ->
-    call({request, {signed_url, Bucket, Key, Expires}}, Timeout).
-
--spec signed_url(Bucket::bucket(), Key::key(), Expires::expire(),
-                 Method::atom(), timeout()) -> list().
-signed_url(Bucket, Key, Expires, Method, Timeout) ->
-    call({request, {signed_url, Bucket, Key, Method, Expires}}, Timeout).
+-spec signed_url(bucket(), key(), pos_integer(), atom(), profile(), timeout()) -> list().
+signed_url(Bucket, Key, Expires, Method, Profile, Timeout) ->
+    call({request, {signed_url, Bucket, Key, Method, Expires}, Profile}, Timeout).
 
 call(Request, Timeout) ->
-    gen_server:call(s3_server, Request, Timeout).
+    try
+        gen_server:call(s3_server, Request, Timeout)
+    catch
+        exit:{timeout, {gen_server, call, _}} ->
+            {error, timeout}
+    end.

@@ -4,33 +4,34 @@
 -module(s3_lib).
 
 %% API
--export([get/4, put/6, delete/3, list/5]).
--export([signed_url/4, signed_url/5]).
+-export([get/5, put/7, delete/4, list/6, signed_url/6]).
 
 -include_lib("xmerl/include/xmerl.hrl").
 -include("../include/s3.hrl").
+
+-define(b2l(B), binary_to_list(B)).
 
 %%
 %% API
 %%
 
--spec get(#config{}, bucket(), key(), [header()]) ->
-                 {ok, body()} | {error, any()}.
-get(Config, Bucket, Key, Headers) ->
-    do_get(Config, Bucket, Key, Headers).
+-spec get(#config{}, profile(), bucket(), key(), [header()]) ->
+                 {ok, {headers(), value()}} | {error, error_reason()}.
+get(Config, Profile, Bucket, Key, Headers) ->
+    do_get(Config, Profile, Bucket, ?b2l(Key), Headers).
 
--spec put(#config{}, bucket(), key(), body(), contenttype(), [header()]) ->
-                 {ok, etag()} | {error, any()}.
-put(Config, Bucket, Key, Value, ContentType, Headers) ->
-    NewHeaders = [{"Content-Type", ContentType}|Headers],
-    do_put(Config, Bucket, Key, Value, NewHeaders).
+-spec put(#config{}, profile(), bucket(), key(), value(), contenttype(), headers()) ->
+                 {ok, etag()} | {error, error_reason()}.
+put(Config, Profile, Bucket, Key, Value, ContentType, Headers) ->
+    NewHeaders = [{<<"Content-Type">>, ContentType} | Headers],
+    do_put(Config, Profile, Bucket, ?b2l(Key), Value, NewHeaders).
 
-delete(Config, Bucket, Key) ->
-    do_delete(Config, Bucket, Key).
+delete(Config, Profile, Bucket, Key) ->
+    do_delete(Config, Profile, Bucket, ?b2l(Key)).
 
-list(Config, Bucket, Prefix, MaxKeys, Marker) ->
+list(Config, Profile, Bucket, Prefix, MaxKeys, Marker) ->
     Key = ["?", "prefix=", Prefix, "&", "max-keys=", MaxKeys, "&marker=", Marker],
-    case request(Config, get, Bucket, lists:flatten(Key), [], <<>>) of
+    case request(Config, Profile, get, Bucket, lists:flatten(Key), [], <<>>) of
         {ok, _Headers, Body} ->
             {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Body)),
             Keys = lists:map(fun (#xmlText{value = K}) -> list_to_binary(K) end,
@@ -44,15 +45,12 @@ list(Config, Bucket, Prefix, MaxKeys, Marker) ->
             Error
     end.
 
-signed_url(Config, Bucket, Key, Expires) ->
-    signed_url(Config, Bucket, Key, get, Expires).
-
-signed_url(Config, Bucket, Key, Method, Expires) ->
-    Signature = sign(Config#config.secret_access_key,
+signed_url(_Config, Profile, Bucket, Key, Method, Expires) ->
+    Signature = sign(secret_access_key(Profile),
                      stringToSign(Method, "", integer_to_list(Expires),
                                   Bucket, Key, "")),
-    Url = build_full_url(Config#config.endpoint, Bucket, Key),
-    SignedUrl = [Url, "?", "AWSAccessKeyId=", Config#config.access_key, "&",
+    Url = build_full_url(endpoint(Profile), Bucket, Key),
+    SignedUrl = [Url, "?", "AWSAccessKeyId=", access_key(Profile), "&",
                  "Expires=", integer_to_list(Expires), "&", "Signature=",
                  http_uri:encode(binary_to_list(Signature))],
     lists:flatten(SignedUrl).
@@ -62,8 +60,8 @@ signed_url(Config, Bucket, Key, Method, Expires) ->
 %% INTERNAL HELPERS
 %%
 
-do_put(Config, Bucket, Key, Value, Headers) ->
-    case request(Config, put, Bucket, Key, Headers, Value) of
+do_put(Config, Profile, Bucket, Key, Value, Headers) ->
+    case request(Config, Profile, put, Bucket, Key, Headers, Value) of
         {ok, RespHeaders, Body} ->
             case lists:keyfind("Etag", 1, RespHeaders) of
                 {"Etag", Etag} ->
@@ -82,8 +80,8 @@ do_put(Config, Bucket, Key, Value, Headers) ->
             Error
     end.
 
-do_get(Config, Bucket, Key, Headers) ->
-    case request(Config, get, Bucket, Key, Headers, <<>>) of
+do_get(Config, Profile, Bucket, Key, Headers) ->
+    case request(Config, Profile, get, Bucket, Key, Headers, <<>>) of
         {ok, ResponseHeaders, Body} ->
             if Config#config.return_headers ->
                     {ok, ResponseHeaders, Body};
@@ -96,8 +94,8 @@ do_get(Config, Bucket, Key, Headers) ->
             Error
     end.
 
-do_delete(Config, Bucket, Key) ->
-    request(Config, delete, Bucket, Key, [], <<>>).
+do_delete(Config, Profile, Bucket, Key) ->
+    request(Config, Profile, delete, Bucket, Key, [], <<>>).
 
 
 %%--------------------------------------------------------------------
@@ -120,20 +118,19 @@ build_full_url(undefined, Bucket, Path) ->
 build_full_url(Endpoint, Bucket, Path) ->
     lists:flatten(["http://", build_host(Endpoint, Bucket), "/", Path]).
 
-request(Config, Method, Bucket, Path, Headers, Body) ->
+request(Config, Profile, Method, Bucket, Path, Headers, Body) ->
     Date = httpd_util:rfc1123_date(),
-    Url = build_url(Config#config.endpoint, Bucket, Path),
+    Url = build_url(endpoint(Profile), Bucket, Path),
+    StringHeaders = [{?b2l(K), ?b2l(V)} || {K, V} <- Headers],
+    Signature = sign(secret_access_key(Profile),
+                     stringToSign(Method, "", Date, ?b2l(Bucket), Path, StringHeaders)),
 
-    Signature = sign(Config#config.secret_access_key,
-                     stringToSign(Method, "",
-                                  Date, Bucket, Path, Headers)),
-
-    Auth = ["AWS ", Config#config.access_key, ":", Signature],
+    Auth = ["AWS ", access_key(Profile), ":", Signature],
     FullHeaders = [{"Authorization", Auth},
                    {"Host", build_host(Bucket)},
                    {"Date", Date},
                    {"Connection", "keep-alive"}
-                   | Headers],
+                   | StringHeaders],
     Options = [{max_connections, Config#config.max_concurrency}],
 
     do_request(Url, Method, FullHeaders, Body, Config#config.timeout, Options).
@@ -142,13 +139,15 @@ do_request(Url, Method, Headers, Body, Timeout, Options) ->
     case lhttpc:request(Url, Method, Headers, Body, Timeout, Options) of
         {ok, {{200, _}, ResponseHeaders, ResponseBody}} ->
             {ok, ResponseHeaders, ResponseBody};
-        {ok, {{204, "No Content" ++ _}, _, _}} ->
-            {ok, not_found};
+        {ok, {{204, "No Content" ++ _}, ResHead, ResBody}} ->
+            %%error_logger:info_msg("204~nheaders: ~p~nbody: ~p~n", [ResHead, ResBody]),
+            {error, document_not_found};
         {ok, {{307, "Temporary Redirect" ++ _}, ResponseHeaders, _ResponseBody}} ->
             {"Location", Location} = lists:keyfind("Location", 1, ResponseHeaders),
             do_request(Location, Method, Headers, Body, Timeout, Options);
-        {ok, {{404, "Not Found" ++ _}, _, _}} ->
-            {ok, not_found};
+        {ok, {{404, "Not Found" ++ _}, ResHead, ResBody}} ->
+            %%error_logger:info_msg("404~nheaders: ~p~nbody: ~p~n", [ResHead, ResBody]),
+            {error, document_not_found};
         {ok, {Code, _ResponseHeaders, <<>>}} ->
             {error, Code};
         {ok, {_Code, _ResponseHeaders, ResponseBody}} ->
@@ -173,6 +172,11 @@ parseCopyXml(Xml) ->
         [#xmlText{value=Etag}, #xmlText{value="\""}] -> Etag ++ "\"";
         [#xmlText{value=Etag}] -> Etag
     end.
+
+
+access_key({AccessKey, _, _})              -> ?b2l(AccessKey).
+secret_access_key({_, SecretAccessKey, _}) -> ?b2l(SecretAccessKey).
+endpoint({_, _, Endpoint})                 -> ?b2l(Endpoint).
 
 
 %%
