@@ -24,7 +24,7 @@ get(Config, Profile, Bucket, Key, Headers) ->
                  {ok, etag()} | {error, error_reason()}.
 put(Config, Profile, Bucket, Key, Value, ContentType, Headers) ->
     NewHeaders = [{<<"Content-Type">>, ContentType} | Headers],
-    do_put(Config, Profile, Bucket, ?b2l(Key), Value, NewHeaders).
+    do_put(Config, Profile, Bucket, Key, Value, NewHeaders).
 
 delete(Config, Profile, Bucket, Key) ->
     do_delete(Config, Profile, Bucket, ?b2l(Key)).
@@ -37,10 +37,9 @@ list(Config, Profile, Bucket, Prefix, MaxKeys, Marker) ->
             Keys = lists:map(fun (#xmlText{value = K}) -> list_to_binary(K) end,
                              xmerl_xpath:string(
                                "/ListBucketResult/Contents/Key/text()", XmlDoc)),
-
             {ok, Keys};
-        {ok, not_found} ->
-            {ok, not_found};
+        {error, not_found} ->
+            {error, bucket_not_found};
         {error, _} = Error ->
             Error
     end.
@@ -67,15 +66,15 @@ do_put(Config, Profile, Bucket, Key, Value, Headers) ->
                 {"Etag", Etag} ->
                     %% for objects
                     {ok, Etag};
-                false when Key == "" andalso Value == "" ->
-                    %% for bucket
+                false when Key == <<"">> andalso Value == <<"">> ->
+                    %% create bucket
                     ok;
-                false when Value == "" orelse Value == <<>> ->
+                false when Value == <<"">> orelse Value == <<"">> ->
                     %% for bucket-to-bucket copy
                     {ok, parseCopyXml(Body)}
             end;
-        {ok, not_found} -> %% eg. bucket doesn't exist.
-            {ok, not_found};
+        {error, not_found} -> %% eg. bucket doesn't exist.
+            {error, bucket_not_found};
         {error, _} = Error ->
             Error
     end.
@@ -88,8 +87,8 @@ do_get(Config, Profile, Bucket, Key, Headers) ->
                true ->
                     {ok, Body}
             end;
-        {ok, not_found} ->
-            {ok, not_found};
+        {error, not_found} ->
+            {error, document_not_found};
         Error ->
             Error
     end.
@@ -139,15 +138,13 @@ do_request(Url, Method, Headers, Body, Timeout, Options) ->
     case lhttpc:request(Url, Method, Headers, Body, Timeout, Options) of
         {ok, {{200, _}, ResponseHeaders, ResponseBody}} ->
             {ok, ResponseHeaders, ResponseBody};
-        {ok, {{204, "No Content" ++ _}, ResHead, ResBody}} ->
-            %%error_logger:info_msg("204~nheaders: ~p~nbody: ~p~n", [ResHead, ResBody]),
+        {ok, {{204, "No Content" ++ _}, _ResHead, _ResBody}} ->
             {error, document_not_found};
         {ok, {{307, "Temporary Redirect" ++ _}, ResponseHeaders, _ResponseBody}} ->
             {"Location", Location} = lists:keyfind("Location", 1, ResponseHeaders),
             do_request(Location, Method, Headers, Body, Timeout, Options);
-        {ok, {{404, "Not Found" ++ _}, ResHead, ResBody}} ->
-            %%error_logger:info_msg("404~nheaders: ~p~nbody: ~p~n", [ResHead, ResBody]),
-            {error, document_not_found};
+        {ok, {{404, "Not Found" ++ _}, _ResHead, _ResBody}} ->
+            {error, not_found};
         {ok, {Code, _ResponseHeaders, <<>>}} ->
             {error, Code};
         {ok, {_Code, _ResponseHeaders, ResponseBody}} ->
