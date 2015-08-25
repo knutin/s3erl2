@@ -143,6 +143,8 @@ do_request(Url, Method, Headers, Body, Timeout, Options) ->
         {ok, {{307, "Temporary Redirect" ++ _}, ResponseHeaders, _ResponseBody}} ->
             {"Location", Location} = lists:keyfind("Location", 1, ResponseHeaders),
             do_request(Location, Method, Headers, Body, Timeout, Options);
+        {ok, {{400, "Bad Request" ++ _}, _ResHead, _ResBody}} ->
+            {error, bad_request};
         {ok, {{404, "Not Found" ++ _}, _ResHead, _ResBody}} ->
             {error, not_found};
         {ok, {Code, _ResponseHeaders, <<>>}} ->
@@ -155,11 +157,16 @@ do_request(Url, Method, Headers, Body, Timeout, Options) ->
 
 
 parseErrorXml(Xml) ->
-    {XmlDoc, _Rest} = xmerl_scan:string(binary_to_list(Xml)),
-    [#xmlText{value=ErrorCode}] = xmerl_xpath:string("/Error/Code/text()", XmlDoc),
-    [#xmlText{value=ErrorMessage}] = xmerl_xpath:string("/Error/Message/text()",
-                                                        XmlDoc),
-    {ErrorCode, ErrorMessage}.
+    case catch xmerl_scan:string(binary_to_list(Xml)) of
+        {'EXIT', _} ->
+            cannot_parse_error_document;
+        {XmlDoc, _Rest} ->
+            [#xmlText{value=ErrorCode}] = xmerl_xpath:string("/Error/Code/text()",
+                                                             XmlDoc),
+            [#xmlText{value=ErrorMessage}] = xmerl_xpath:string("/Error/Message/text()",
+                                                                XmlDoc),
+            {ErrorCode, ErrorMessage}
+    end.
 
 
 parseCopyXml(Xml) ->
